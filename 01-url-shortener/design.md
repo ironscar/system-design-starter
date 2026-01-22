@@ -166,6 +166,8 @@
 
 - SELECTED `ADR1_OPT3 (with underlying OPT1)` for shorter URLs and wider encoding space available
 - SELECTED `ADR2_OPT1` as while its slightly more complex, it has better insert complexity and similar search complexity
+  - this doesn't take into account how to figure out the latest combination which would require a linear max across O(D/26) which will push the cost way up
+  - can we have an `OPT2` like latest lookup table and see how that works?
 
 #### System limits
 
@@ -175,13 +177,14 @@
 #### Questions [TODO]
 
 1. How to reuse defunct URLs?
-2. Should we use bloom filters to check existing?
-3. Which options to select and why?
-4. How to do caching?
-5. How to achieve high availability?
-6. How to achieve geo replication?
-7. What is the write frequency supported considering single queue and processor with synchronous insertion?
-8. How to deal with path variables?
-9.  Do we use a disk-based key-value DB or relational DB?
+2. How to mix `ADR2_OPT1` and `ADR2_OPT2` to get best of both worlds?
+3. Should we use bloom filters to check existing?
+4. Which options to select and why?
+5. How to do caching?
+6. How to achieve high availability?
+7. How to achieve geo replication?
+8. What is the write frequency supported considering single queue and processor with synchronous insertion?
+9. How to deal with path variables?
+10. Do we use a disk-based key-value DB or relational DB?
 
 -------------------
