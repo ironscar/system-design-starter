@@ -17,10 +17,12 @@
 - The short URLs should be as short as possible for ease of storage
 - Make sure that the same long URL does not generate a new short URL and gets duplicated in database
 - We may require a way to decommission URLs whose corresponding short URLs maybe reused for new long URLs
+- System needs to be highly available and low latency regardless of geographical location
 
 ## Scale Considerations
 
-- How many URLs is the system designed to handle?
+- There are about 3.5 million domains and then each domain will further have more path extensions with fewer encodings
+  - How many URLs is the system designed to handle?
 
 ---
 
@@ -29,83 +31,122 @@
 ### Solution 1
 
 - Given a long URL like `www.ti.com/product/OPA333/part-details/OPA333AIDCKR` (51 chars)
-- Steps:
-  - break the URL into chunks based on `/`
-  - chunks generated are as follows: `[www.ti.com, product, OPA333, part-details, OPA333AIDCKR]`
-  - have a sequence in DB where these chunks are inserted one-by-one and the corresponding sequence value is assigned
-    - the sequence should start with atleast 2 characters where first character is index of chunk
-    - `00` => `www.ti.com`
-    - `10` => `product`
-    - `20` => `OPA333`
-    - `30` => `part-details`
-    - `40` => `OPA333AIDCKR`
-  - corresponding URL then becomes `my-url-shortener/0010203040`
-  - issue is that eventually there could be a chunk mapped to `001` and we will no longer know where to separate
-  - so we can assign a specific character to slashes - such as `_` and not use that in the sequence at all
-  - final URL becomes `my.ly/00_10_20_30_40` (6 + 14 chars)
-  - the chunks table can be partitioned based on index of chunk and then each partition could have its own index
-- We can also make the sequence count using base 36 (0-9,a-z) or base 62 (0-9,a-z,A-Z)
-  - that way the short URL may look something like `my.ly/0ah_1b2_2c3_3dd_489`
-- Given `00_10_20_30_40`, 
-  - we split the short URL based on `_`
-  - then the first character of each split gives the position of the chunk
-    - supports upto 36 or 62 chunks in the URL so that one character can denote it in base 36 or base 62
-    - but that means the number of underscores itself is fairly large and so effective chunks supported are lesser
-  - the rest of the characters is what we have to find with an index from the partition
-- This system is guaranteed to have no collisions as we are doing exact lookups
-  - but eventually the length will increase beyond what can be called short
-- Concurrency considerations
-  - concurrent reads should have no problems as long as the database is appropriately scaled
-  - concurrent writes end up being asynchronous inserts so that the sequence can generate safely without collisions serially
+
+## Assumptions
+
+- Not handling query or hash parameters
+- First letter after first `.` in URL is letter (but it would be easy enough to extend to digits and case-sensitive etc)
+- Write frequency is low enough for a single async queue and processor to handle it
+  
+#### Thoughts
+
+- break the URL into chunks based on `/`
+- chunks generated are as follows: `[www.ti.com, product, OPA333, part-details, OPA333AIDCKR]`
+  - thus a domain becomes the first chunk
+    - assuming we use `[0-9a-zA-Z]` encoding (there will be 51 characters available)
+    - 51^5 lands us at 0.35M whereas 51^6 lands us at 17B => `6 characters required for domain`
+      - sum(51^n, n: 0-5) = 0.35M approx => (allowing any length encodings vs fixed length encodings doesn't change the required number of characters)
+      - `ADR1_OPT1`: Have fixed length chunks for domain
+      - `ADR1_OPT2`: Have variable length chunks for domain
+    - either way searching for domain after the fact would require O(log2(3.5M)) in an indexed flat table
+      - `OPTIMIZATION-1`: most websites that start with `www.` have a fairly distinct character after that
+        - thus we take the first character after the first `.` and keep it in our short URL as well to help partition the search space
+        - so this character becomes the first character of the domain chunk followed by 5 characters
+          - this gives us an upper limit of 26*0.35M encodings which is greater than 3.5M
+          - this also partitions the original 3.5M flat table into smaller partitions with a lower limit of 3.5M/26 = 130K and average limit of 3.5M/13 = 260K
+        - `ADR1_OPT3`: Based on `OPTIMIZATION-1` so first character comes from URL, used as partition key and rest of the 5 digits searched for in that partition using index [RECOMMENDED]
+          - can be extended on top of either `ADR1_OPT1` or `ADR1_OPT2`
+  - every chunk after domain can have variable length
+- so final URL becomes something like `www.my.ly/t0yB03-cx-31-A-13` (= 27 characters)
+
+#### Database design
+
+- `ADR2_OPT1`: Chunks are reused across chunk index as well as domain
+  - DB table 1 stores all the encodings for domain with the mappings
+    - partitioned using the first character after first `.`
+    - indexed on the character encoding
+  - DB table 2 stores all the encodings, the chunk index of the URL, the domain encoding and their actual chunk mappings for non-domain chunks
+    - partitioned using the chunk index of the URL
+    - indexed on (domain encoding, chunk index) in this order
+  - DB table 3 and 4 store the last fetch date by chunk index and character encoding
+    - this will be populated async after each request to evaluate freshness later and maybe free up open records
+    - table 4 will also need to store the domain encoding to find unique records
+  - This will have smaller search space per URL request but increase overall table size
+- `ADR2_OPT2`: Chunks are reused only across chunk index
+  - DB table 1 stores the latest encoding to be used for each chunk index (0 for domain and so on)
+  - DB table 2 stores the partition key, 5 character encodings for domain with the actual mappings
+    - partitioned using the first character after first `.`
+    - indexed on the character encoding
+    - indexed on the mapping
+  - DB table 3 stores the chunk index as partition key, all character encodings and actual mapped value of chunk
+    - partitioned on the chunk index 
+    - indexed on the character encoding
+    - indexed on the mapping
+  - DB table 4 and 5 store the last fetch date by chunk index and character encoding
+    - this will be populated async after each request to evaluate freshness later and maybe free up open records
+  - This will have larger search space per URL request but decrease overall table size
+
+#### Insert new URL to create short URL
+
+- First, split the url into the chunks by `/` and associate each chunk to the chunk index
+  - we get partition keys as `domain = www.ti.com -> t`, `product -> 1`, `OPA333 -> 2`, `part-details -> 3`, `OPA333AIDCKR -> 4`
+- Then we need to check if each of these chunk mappings already exist, so lets parallelize that with threads
+  - no need to wait for threads to complete as we will send server-sent-event (SSEs) later
+  - depending on write frequency, spawning fixed threads per request may starve system resources so instead we use a pool that may increase latency but keeps system operational
+  - depending on `ADR2`, we may have to process just domain first `OPT1` or can do all in parallel `OPT2`
+  - each thread does the following:
+    - search in corresponding chunk tables with their partition keys and actual URL chunk value to see if there is existing record already?
+    - if existing record => get the associated encoding
+    - if not existing record => forward new insert to queue with (chunk value, partition key for chunk) args 
+      - need to include domain encoding if `ADR2_OPT1`
+  - we can get some chunks with mapped values or no chunks with mapped values so return the corresponding URL back
+    - if `www.ti.com` and `part-details` have mappings, it will return `{0: t0yB03, 3: A}` (map of chunk index to encoding)
+- From here, we will follow a CQRS pattern
+  - since first-time writes can afford to take some time, we can afford to let this be async
+- Async job 1 is the main process which keeps ingesting from queue and does the following:
+  - each chunk is processed as a thread here that we know needs to be a new insert
+  - insert into table 2 or 3 the latest encoding (select from table 1 using chunk index) with current chunk value using the partition key
+  - trigger an SSE to client with chunk index and encoding like `{2: 31}`
+    - at this point client has the new chunk encoding and every time it receives one, it checks if there are any pending chunks
+    - if no pending chunks, it provides the user with the final short URL
+  - insert into table 1 the computed next encoding using the current latest encoding (could create a DB function for it) after the SSE
+
+#### Get actual URL from short URL
+
+- Comes to the page of the short URL website and then sends a REST request to the short URL backend
+- First, split the url into the chunks by `-` and associate each chunk to the chunk index
+  - we get the following chunks and partition keys: `0yB03 -> t, cx -> 1, 31 -> 2 , A -> 3, 13 -> 4`
+- Then for each chunk, submit the jobs to a thread pool with (chunk encoding, partition key for chunk) args
+  - no need to wait for threads to complete as we will send SSEs later
+  - `ADR2_OPT1` may require domain chunk to be processed first before parallelizing
+  - each thread does the following:
+    - select from table 2 or 3 based on partition key and indexed chunk encoding value to get the unique chunk value
+    - trigger an SSE with the chunk encoding and chunk index like `{2: 31}`
+      - at this point client has the new chunk encoding and every time it receives one, it checks if there are any pending chunks
+      - if no pending chunks, it concatenates the chunks by order and redirects to the actual URL
+      - if any chunk index returns with null implies that short URL mapping doesn't exist and we send user to `Page does not exist` screen
+    - insert into table 4 or 5 based on partition key, the current timestamp and timezone of the request after the SSE
+
+#### Cleanup unused mappings
+
+- A background job can look at all the last fetch dates in table 4 or 5 and find the ones which are more than 1 year old (could be configurable perhaps)
+- Look at how to delete the record here and reassign it in actual tables `Questions-1: reuse defunct url` [TODO]
 
 #### System limits
 
-- Assume that we dont want more than 15 characters after the initial `/` in the short-url
-- If each chunk is atleast 2 characters, most number of chunks supported = 5
-  - any 1 chunk may have 3 characters => 2 characters for the actual base 62 encoding
-- First character stores position of chunk and second character can store 62 different combinations using base 62
-  - if two characters after position character, it can store 62*62 = 3844 combinations
-- A URL will have atleast 2 chunks and atmost 5 chunks
-  - if 5 chunks => each chunk can have between 2 and 3 characters => 1 to 2 characters for encoding => 62 to 62^2 combinations per chunk
-    - total unique combos putting all chunks together = `62^4 * 62^2 = 62^6 = 56.8e9`
-- Lets proceed assuming then that total possible combos are 56.8e9 combinations and per chunk cardinality is between 62 and 3844
-  - complexity for getting long URL from short URL
-    - splitting the short URL into chunks = O(15) assuming max 15 characters
-    - then atmost 5 separate threads can hit the DB to get the corresponding value for each chunk
-    - each thread will hit a specific partition of the DB based on the position character and use the partition index to find the specific entry
-    - read complexity of a B-tree index = O(log2(N)) => O(log2(3844)) = O(11.9) handled in parallel by each thread
-    - then each chunk is appended in order and returned as actual URL
-    - total time complexity = `O(15 + 11.9 + 5) = O(31.9)`
-    - more generally, if N = number of max characters in URL, M = base encoding used and P = number of chunks => `O(N + 2logM + P)`
-    - since M is mostly constant here (62), it becomes `O(N + 11.9 + P)`
-    - implying linear complexity in terms of the short URL length
-  - complexity for generating new short URL from new long URL
-    - splitting the long URL into chunks = O(N) assuming URL is N characters long
-    - then we can insert the chunks to a DB/queue in a CQRS fashion to make sure no two end up getting the same value = O(P) where P = number of chunks
-    - they can then be asynchronously assigned an incremental sequence value converted to base 62 and inserted into actual chunk DB and clear from queue = O(P)
-      - the B-tree write complexity is O(log2(N)) => O(log2(3844)) = O(11.9)
-      - our complexity will be 5 times this at max = O(59.5)
-    - once all done, then a Server-side event can send the corresponding chunk values generated and put it all together = O(P)
-    - total time complexity = `O(N + 59.5 + 3P)`
-    - this is also mostly linear in terms of the length of the long URL
-- Total URLs supported = `56.8 billion` roughly
-- Total read complexity = `O(N + 11.9 + P)`
-- Total write complexity = `O(N + 59.5 + 3P)` (asynchronous considerations for the first-time generation)
-
-#### Notes
-
-- Initial URLs will be shorter than later URLs
-- We are breaking into positional chunks so that we can keep each partition smaller to search in which reduces possibility of reuse
+- Currently one queue handles synchronous insertion
+- Path variables could be particularly challenging to deal with by increasing the number of combinations
 
 #### Questions [TODO]
 
-1. How to check if current long URL already exists in DB or not?
-2. Do you really need the position bit, can we not figure it out from the URL directly?
-3. Should we use hash indexing instead since its just 3844 combinations per partition?
-4. Is CQRS-based async insert the best way to go?
-5. Is there a better way to store the data?
-6. Is there a better encoding algorithm?
-7. Can we make URLs similar length for old and new entries?
-8. How to reuse combinations for defunct URLs?
+1. Compute time complexity of insert and fetch
+2. How to reuse defunct URLs?
+3. Which options to select and why?
+4. How to do caching?
+5. What is the write frequency supported considering single queue and processor with synchronous insertion?
+6. How to achieve high availability?
+7. How to achieve geo replication?
+8. How to deal with path variables?
+9. Do we use a disk-based key-value DB or relational DB?
 
----
+-------------------
