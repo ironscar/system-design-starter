@@ -22,7 +22,6 @@
 ## Scale Considerations
 
 - There are about 3.5 million domains and then each domain will further have more path extensions with fewer encodings
-  - How many URLs is the system designed to handle?
 
 ---
 
@@ -105,11 +104,26 @@
   - since first-time writes can afford to take some time, we can afford to let this be async
 - Async job 1 is the main process which keeps ingesting from queue and does the following:
   - each chunk is processed as a thread here that we know needs to be a new insert
-  - insert into table 2 or 3 the latest encoding (select from table 1 using chunk index) with current chunk value using the partition key
+  - insert into table 2 or 3 the latest encoding (select from table 1 using chunk index if `OPT2`) with current chunk value using the partition key
   - trigger an SSE to client with chunk index and encoding like `{2: 31}`
     - at this point client has the new chunk encoding and every time it receives one, it checks if there are any pending chunks
     - if no pending chunks, it provides the user with the final short URL
   - insert into table 1 the computed next encoding using the current latest encoding (could create a DB function for it) after the SSE
+- Total time complexity:
+  - split = `O(N)` where `N` is number of chunks
+  - search for existing mapping depends on `ADR2` (taking into account parallelization)
+    - if `OPT1` => `O(log2(Ci) + 2log2(D/26))` per thread where `Ci` is number of records per chunk and domain encoding
+    - if `OPT2` => `O(log2(Cj) + log2(D/26))` per thread where `Cj` is number of records per chunk
+    - worst case is all of them are non-existing but we end up searching entire space
+  - insert for new mapping per chunk may depend on `ADR2` (taking into account serial processing)
+    - if `OPT1` => `O(log2(D/26) + (N-1)*log2(N*D/26))` per thread
+    - if `OPT2` => `O(N*(N + log2(D/26)))` per thread
+    - assume Ci = 10 and N = 5
+      - `OPT1` complexity = `O(94)`
+      - `OPT2` complexity = `O(110)`
+      - `OPT1` write complexity is slightly better
+  - concatenation complexity = `O(N)`
+  - final insert complexity assuming `OPT1` = `O(110 + 10 + )`
 
 #### Get actual URL from short URL
 
@@ -126,11 +140,32 @@
       - if no pending chunks, it concatenates the chunks by order and redirects to the actual URL
       - if any chunk index returns with null implies that short URL mapping doesn't exist and we send user to `Page does not exist` screen
     - insert into table 4 or 5 based on partition key, the current timestamp and timezone of the request after the SSE
+- Total time complexity:
+  - split = `O(N)` where `N` is number of chunks
+  - search depends on `ADR2` (taking into account parallelization)
+    - if `OPT1` =>
+      - domain => `O(log2(D/26))` where D is number of domains and 26 first letters form the partition key
+      - other chunks => `O(log2(D/26) + log2(Ci))` where `Ci` is the number of records per chunk index and domain encoding
+      - total = `O(2log2(D/26) + log2(Ci))` as domain has to happen first and the others can go in parallel after that
+    - if `OPT2` =>
+      - domain => `O(D/26)` where D is number of domains and 26 first letters form the partition key
+      - other chunks => `O(log2(D/26) + log2(Cj))` where `Cj` is the number of records per chunk index and domain encoding
+      - total = `O(log2(D/26) + log2(Cj))` as domain can happen in parallel
+    - `Cj >> Ci` => `log2(Cj) > log2(Ci)`
+      - assume average chunk per domain encoding = 10 => `Ci = 10` and `Cj = Ci*(D/26) = 1.3M`
+      - choose `ADR2_OPT2` if `log2(Ci*D/26) - log2(Ci) < log2(D/26)` => `log2((Ci*D/26)/Ci) < log2(D/26)` => `log2(D/26) < log2(D/26)` => both are more or less equal
+  - concatenate = `O(N)`
+  - final search complexity = `O(2N + log2(D/26) + log2(Cj))` (assuming Ci = 10 and N = 5 => `O(47.4)`)
 
 #### Cleanup unused mappings
 
 - A background job can look at all the last fetch dates in table 4 or 5 and find the ones which are more than 1 year old (could be configurable perhaps)
-- Look at how to delete the record here and reassign it in actual tables `Questions-1: reuse defunct url` [TODO]
+- Look at how to delete the record here and reassign it in actual tables `Questions: reuse defunct url` [TODO]
+
+#### ADR Selection
+
+- SELECTED `ADR1_OPT3 (with underlying OPT1)` for shorter URLs and wider encoding space available
+- SELECTED `ADR2_OPT1` as while its slightly more complex, it has better insert complexity and similar search complexity
 
 #### System limits
 
@@ -139,14 +174,14 @@
 
 #### Questions [TODO]
 
-1. Compute time complexity of insert and fetch
-2. How to reuse defunct URLs?
+1. How to reuse defunct URLs?
+2. Should we use bloom filters to check existing?
 3. Which options to select and why?
 4. How to do caching?
-5. What is the write frequency supported considering single queue and processor with synchronous insertion?
-6. How to achieve high availability?
-7. How to achieve geo replication?
+5. How to achieve high availability?
+6. How to achieve geo replication?
+7. What is the write frequency supported considering single queue and processor with synchronous insertion?
 8. How to deal with path variables?
-9. Do we use a disk-based key-value DB or relational DB?
+9.  Do we use a disk-based key-value DB or relational DB?
 
 -------------------
