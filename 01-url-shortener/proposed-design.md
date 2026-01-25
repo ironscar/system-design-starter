@@ -31,9 +31,9 @@
 
 - Given a long URL like `www.ti.com/product/OPA333/part-details/OPA333AIDCKR` (51 chars)
 
-## Assumptions
+#### Assumptions
 
-- Not handling query or hash parameters
+- Not handling query or hash parameters (these will just be forwarded during redirect but not saved during creation of short URL)
 - First letter after first `.` in URL is letter (but it would be easy enough to extend to digits and case-sensitive etc)
 - Write frequency is low enough for a single async queue and processor to handle it (could attempt to let them know how many jobs in queue or send them result later somehow)
 - Assuming number of chunks is 10 (never goes above it) as we partition based on it which cannot change at runtime
@@ -202,7 +202,7 @@
 
 #### System limits
 
-- Currently one queue handles synchronous insertion
+- Currently chunk-specific queue consumers handle synchronous insertion
 - Path variables could be particularly challenging to deal with by increasing the number of combinations
 - More than 10 URL chunks are not supported by system
 
