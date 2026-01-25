@@ -58,7 +58,7 @@
         - `ADR1_OPT3`: Based on `OPTIMIZATION-1` so first character comes from URL, used as partition key and rest of the 5 digits searched for in that partition using index
           - can be extended on top of either `ADR1_OPT1` or `ADR1_OPT2`
   - every chunk after domain can have variable length
-- so final URL becomes something like `www.my.ly/t0y-cx-31-A-13` (= 25 characters)
+- so final URL becomes something like `www.my.ly/t0y-cx-31-A-13` (= 24 characters)
 
 #### Database design
 
@@ -153,7 +153,7 @@
 
 - Comes to the page of the short URL website and then sends a REST request to the short URL backend
 - First, split the url into the chunks by `-` and associate each chunk to the chunk index
-  - we get the following chunks and partition keys: `0yB03 -> t, cx -> 1, 31 -> 2 , A -> 3, 13 -> 4`
+  - we get the following chunks and partition keys: `0y -> t, cx -> 1, 31 -> 2 , A -> 3, 13 -> 4`
 - Then for each chunk, submit the jobs to a thread pool with (chunk encoding, partition key for chunk) args
   - no need to wait for threads to complete as we will send SSEs later
   - `ADR2_OPT1` may require domain chunk to be processed first before parallelizing
@@ -181,6 +181,10 @@
   - concatenate = `O(N)`
   - final search complexity = `O(2N + log2(D/26) + log2(Cj))` (assuming Ci = 10 and N = 5 => `O(47.4)`)
 
+#### Caching strategy
+
+- When we find the mapping of a certain chunk value to an encoding during fetch, cache with `key = partitionKey + encoding` and `value = chunk value` and set a TTL for 1 day
+
 #### Cleanup unused mappings
 
 - A monthly background job can look at all the last fetch dates in table 4 or 5 and find the ones which are more than 1 year old (could be configurable both in schedule and retention)
@@ -204,27 +208,33 @@
 #### System limits
 
 - Currently chunk-specific queue consumers handle synchronous insertion
+  - each chunk is searched in parallel (this part can be done for multiple requests at the same time as well) => this can be scaled
+  - then each chunk of a request is forwarded to the speciifc consumers (here each consumer can only do one chunk of a specific index per time => one request at a time) => this cannot be scaled
+  - if we assume 100ms for each phase (search and insert), then one request takes roughly 200ms
+  - the first phase can be parallelized across requests but the bottleneck becomes the second phase where each request takes 100ms before letting in the chunks of the next request
+  - so N request can be done in 100 (all in parallel) + N*100 (all after that serially) = `(N+1)*100 ms`
+  - if we need to support 232 requests per second => `23.3 seconds` is the worst-case time until system can start processing new requests for current scale
+  - till that time, 232 requests have kept coming in each second => `5405 requests` have already queued up until system can even get to them
+  - eventually the system will get overwhelmed with regards to write frequency
+  - currently we can process `9 requests per second` with zero pressure
 - Path variables could be particularly challenging to deal with by increasing the number of combinations
-- More than 10 URL chunks are not supported by system
 
-#### Questions [TODO]
+#### Todos
 
-1. How to do caching?
-2. How to achieve high availability?
-3. How to achieve geo replication?
-4. What is the write frequency supported considering single queue and processor with synchronous insertion?
-5. How to deal with path variables?
-6. Do we use a relational DB or disk-based key-value DB?
-7. Should we use bloom filters to check existing?
+1. Make diagrams for:
+   - Database diagram
+   - Architecture diagram
+   - Fetch flow sequence diagram
+   - Insert flow sequence diagram
+2. Can we improve write frequency latency?
+   - Perhaps take batches of 25 chunks from the queue at a time (even if belonging to different domains since we are using `ADR2_OPT2` so should be fine) and insert them all in one DB transaction
+   - 25 chunks because then 100ms could possibly cover 9*25 = 225 requests per second (close to our required write frequency)
+3. How to achieve high availability, disaster recovery and geographical replication?
+4. Do we use a relational DB or disk-based key-value DB like Aerospike?
+5. Should we use bloom filters to check existing?
+   - during search existing phase of insert, it can definitely tell if it doesn't exist and move directly to insert phase
+   - if it cannot definitely tell, then we do what we do today to search and if not really there, move to insert phase
+   - we can store the bloom filter in table 1 based on `ADR2_OPT2` for each chunk index
+6. How to deal with path variables?
 
 -------------------
-
-#### TODOs
-
-Make diagrams for:
-- Database diagram
-- Architecture diagram
-- Fetch flow sequence diagram
-- Insert flow sequence diagram
-
----
