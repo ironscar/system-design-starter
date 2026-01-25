@@ -14,7 +14,7 @@
 
 - The one-time process of generating the initial short URL can take some time
 - The process of getting the long URL back from the short URL must be fast
-- The short URLs should be as short as possible for ease of storage
+- The short URLs should be as short as possible
 - Make sure that the same long URL does not generate a new short URL and gets duplicated in database
 - We may require a way to decommission URLs whose corresponding short URLs maybe reused for new long URLs
 - System needs to be highly available and low latency regardless of geographical location
@@ -35,7 +35,7 @@
 
 - Not handling query or hash parameters
 - First letter after first `.` in URL is letter (but it would be easy enough to extend to digits and case-sensitive etc)
-- Write frequency is low enough for a single async queue and processor to handle it
+- Write frequency is low enough for a single async queue and processor to handle it (could attempt to let them know how many jobs in queue or send them result later somehow)
 - Assuming number of chunks is 10 (never goes above it) as we partition based on it which cannot change at runtime
   
 #### Thoughts
@@ -54,10 +54,10 @@
         - so this character becomes the first character of the domain chunk followed by 5 characters
           - this gives us an upper limit of 26*0.35M encodings which is greater than 3.5M
           - this also partitions the original 3.5M flat table into smaller partitions with a lower limit of 3.5M/26 = 130K and average limit of 3.5M/13 = 260K
-        - `ADR1_OPT3`: Based on `OPTIMIZATION-1` so first character comes from URL, used as partition key and rest of the 5 digits searched for in that partition using index [RECOMMENDED]
+        - `ADR1_OPT3`: Based on `OPTIMIZATION-1` so first character comes from URL, used as partition key and rest of the 5 digits searched for in that partition using index
           - can be extended on top of either `ADR1_OPT1` or `ADR1_OPT2`
   - every chunk after domain can have variable length
-- so final URL becomes something like `www.my.ly/t0yB03-cx-31-A-13` (= 27 characters)
+- so final URL becomes something like `www.my.ly/t0y-cx-31-A-13` (= 25 characters)
 
 #### Database design
 
@@ -65,6 +65,7 @@
   - DB table 1 stores all the encodings for domain with the mappings
     - partitioned using the first character after first `.`
     - indexed on the character encoding
+    - also store the latest encoding used for each chunk in distinct columns
   - DB table 2 stores all the encodings, the chunk index of the URL, the domain encoding and their actual chunk mappings for non-domain chunks
     - partitioned using the chunk index of the URL
     - indexed on (domain encoding, chunk index) in this order
@@ -83,7 +84,11 @@
     - indexed on the character encoding
     - indexed on the mapping
   - DB table 4 and 5 store the last fetch date by chunk index and character encoding
+    - these will be partitioned by first character or chunk index respectively
     - this will be populated async after each request to evaluate freshness later and maybe free up open records
+  - DB table 6 and 7 stores a list of reusable encoding from defunct URLs and a status (REUSED or UNUSED)
+    - these will be partitioned by first character or chunk index respectively (for now we wont partition on status)
+    - this will be populated by the background URL cleanup job
   - This will have larger search space per URL request but decrease overall table size
 
 #### Insert new URL to create short URL
@@ -98,37 +103,52 @@
     - search in corresponding chunk tables with their partition keys and actual URL chunk value to see if there is existing record already?
     - if existing record => get the associated encoding
     - if not existing record => forward new insert to queue with (chunk value, partition key for chunk) args 
-      - need to include domain encoding if `ADR2_OPT1`
+      - need to include domain encoding and corresponding latest encoding if `ADR2_OPT1`
+      - if `ADR2_OPT1` => send all insert requests to the queue as a single item so that the main processor can break it down and combine it back due to domain dependency
   - we can get some chunks with mapped values or no chunks with mapped values so return the corresponding URL back
-    - if `www.ti.com` and `part-details` have mappings, it will return `{0: t0yB03, 3: A}` (map of chunk index to encoding)
+    - if `www.ti.com` and `part-details` have mappings, it will return `{0: t0y, 3: A}` (map of chunk index to encoding)
 - From here, we will follow a CQRS pattern
   - since first-time writes can afford to take some time, we can afford to let this be async
 - Async job 1 is the main process which keeps ingesting from queue and does the following:
-  - each chunk is processed as a thread here that we know needs to be a new insert
-  - insert into table 2 or 3 the latest encoding (select from table 1 using chunk index if `OPT2`) with current chunk value using the partition key
+  - `ADR2_OPT1` => it recieves the list of all chunks to be processed for a request at a time
+    - each chunk can be processed as a thread here that we know needs to be a new insert
+      - `ADR2_OPT1` just needs domain to be processed first and then rest of them can be parallelized as their encoding sequences are independent
+  - `ADR2_OPT2` can recieve each chunk as an independent item and process it
+    - there could be distinct processors for each chunk index so that it could be parallelized
+  - insert into tables the latest encoding 
+    - table 2 or 3 if `ADR2_OPT2` and table 1 or 2 if `ADR2_OPT1`
+    - (use current latest encoding from args if `ADR2_OPT1`) with current chunk value using the partition key
+    - (select from table 1 using chunk index if `ADR2_OPT2`) with current chunk value using the partition key
   - trigger an SSE to client with chunk index and encoding like `{2: 31}`
     - at this point client has the new chunk encoding and every time it receives one, it checks if there are any pending chunks
     - if no pending chunks, it provides the user with the final short URL
-  - insert into table 1 the computed next encoding using the current latest encoding (could create a DB function for it) after the SSE
+  - update the computed next encodings using the current latest encoding (could create a DB function for it) after the SSE
+    - the domain record in table 1 if `ADR2_OPT1`
+    - table 1 if `ADR2_OPT2`
 - Total time complexity:
   - split = `O(N)` where `N` is number of chunks
   - search for existing mapping depends on `ADR2` (taking into account parallelization)
-    - if `OPT1` => `O(log2(Ci) + 2log2(D/26))` per thread where `Ci` is number of records per chunk and domain encoding
-    - if `OPT2` => `O(log2(Cj) + log2(D/26))` per thread where `Cj` is number of records per chunk
+    - if `ADR2_OPT1` => `O(log2(Ci) + 2log2(D/26))` per thread where `Ci` is number of records per chunk and domain encoding
+    - if `ADR2_OPT2` => `O(log2(Cj) + log2(D/26))` per thread where `Cj` is number of records per chunk
     - worst case is all of them are non-existing but we end up searching entire space
-  - insert for new mapping per chunk may depend on `ADR2` (taking into account serial processing)
-    - if `OPT1` => `O(log2(D/26) + (N-1)*log2(N*D/26))` per thread
-      - complexity of figuring out the next combination needs to be included
-        - for domain, `O(D/26)` and for each chunk after that, `O(log2(N*D/26) + Ci)`
-      - total for `OPT1` => `O(log2(D/26) + N*log2(N*D/26) + Ci + D/26)`
-    - if `OPT2` => `O(N*(N + log2(D/26)))` per thread
+  - insert for new mapping per chunk may depend on `ADR2` (taking into account parallelization)
+    - if `ADR2_OPT1` => `O(2log2(D/26) + log2(Ci*D/26))` per request
+      - insert new domain = `O(log2(D/26))`
+      - insert new chunk after domain in parallel = `O(log2(Ci*D/26))` per chunk
+      - update latest encoding at domain record all at once = `O(log2(D/26))`
+    - if `ADR2_OPT2` => `O(log2(Ci*D/26) + N)` per request
+      - insert new domain in parallel = `O(log2(D/26))`
+      - insert new chunk in parallel = `O(log2(Ci*D/26))` per chunk
+      - update latest encoding at table 1 for each chunk = `O(N)`
     - assume Ci = 10 and N = 5
-      - `OPT1` complexity = `O(134738)` (majorly loses out due to linear complexity of figuring out next combination)
-      - `OPT2` complexity = `O(110)`
+      - `ADR2_OPT1` complexity = `O(54)`
+      - `ADR2_OPT2` complexity = `O(30)`
   - concatenation complexity = `O(N)`
-  - final insert complexity assuming `OPT2` = `O(120)`
+  - final insert complexity
+    - `ADR2_OPT1` = `O(64)`
+    - `ADR2_OPT2` = `O(40)`
 
-#### Get actual URL from short URL
+#### Fetch actual URL from short URL
 
 - Comes to the page of the short URL website and then sends a REST request to the short URL backend
 - First, split the url into the chunks by `-` and associate each chunk to the chunk index
@@ -162,13 +182,23 @@
 
 #### Cleanup unused mappings
 
-- A background job can look at all the last fetch dates in table 4 or 5 and find the ones which are more than 1 year old (could be configurable perhaps)
-- Look at how to delete the record here and reassign it in actual tables `Questions: reuse defunct url` [TODO]
+- A monthly background job can look at all the last fetch dates in table 4 or 5 and find the ones which are more than 1 year old (could be configurable both in schedule and retention)
+- If a particular chunk is old, insert the encoding into Table 6 or 7 based on partition key with status as UNUSED
+- Delete all items that are marked with status REUSED (after they have been replicated for reporting somewhere perhaps)
+- Changes before SSE during insert flow:
+  - could do an A/B testing where a random number from 1 to 10 (if smaller than 3 (configurable maybe)) can decide whether to use sequence or use reusable encodings
+  - depending on that, it can query Table 6 or 7 accordingly and pick up an encoding where status = UNUSED (just select 1, order unimportant)
+  - update this encoding record on Table 2 oe 3 accordingly (its guaranteed to exist so we can just overwrite it)
+  - update this encoding record on Table 6 or 7 accordingly to status REUSED
+- The point of having the `status` column is that we can have a reporting job that can check how many encodings actually got reused etc
 
 #### ADR Selection
 
-- SELECTED `ADR1_OPT3 (with underlying OPT1)` for shorter URLs and wider encoding space available
-- SELECTED `ADR2_OPT2` as while its read complexity is similar, the insert complexity is way better due to storing the last used combination
+- SELECTED `ADR1_OPT3 (with underlying OPT1)` for similar encoding, shorter URLs and wider encoding space available
+  - makes URLs grow only if the service is being used more
+- SELECTED `ADR2_OPT2` for comparable read complexity and better insert complexity
+  - while `ADR2_OPT1` had better storage efficiency by repeating chunks across domain, we dont know how often that would come into play and its also little more complex
+  - `ADR_OPT2` also enables us to have a distinct processor for each chunk index in the CQRS setup so that each chunk can be independent item in queue enabling better packing
 
 #### System limits
 
@@ -178,15 +208,22 @@
 
 #### Questions [TODO]
 
-1. How to reuse defunct URLs?
-2. How to mix `ADR2_OPT1` and `ADR2_OPT2` to get best of both worlds?
-3. Should we use bloom filters to check existing?
-4. Which options to select and why?
-5. How to do caching?
-6. How to achieve high availability?
-7. How to achieve geo replication?
-8. What is the write frequency supported considering single queue and processor with synchronous insertion?
-9. How to deal with path variables?
-10. Do we use a disk-based key-value DB or relational DB?
+1. How to do caching?
+2. How to achieve high availability?
+3. How to achieve geo replication?
+4. What is the write frequency supported considering single queue and processor with synchronous insertion?
+5. How to deal with path variables?
+6. Do we use a relational DB or disk-based key-value DB?
+7. Should we use bloom filters to check existing?
 
 -------------------
+
+#### TODOs
+
+Make diagrams for:
+- Database diagram
+- Architecture diagram
+- Fetch flow sequence diagram
+- Insert flow sequence diagram
+
+---
