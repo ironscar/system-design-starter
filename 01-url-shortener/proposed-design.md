@@ -36,6 +36,7 @@
 - Not handling query or hash parameters
 - First letter after first `.` in URL is letter (but it would be easy enough to extend to digits and case-sensitive etc)
 - Write frequency is low enough for a single async queue and processor to handle it
+- Assuming number of chunks is 10 (never goes above it) as we partition based on it which cannot change at runtime
   
 #### Thoughts
 
@@ -117,13 +118,15 @@
     - worst case is all of them are non-existing but we end up searching entire space
   - insert for new mapping per chunk may depend on `ADR2` (taking into account serial processing)
     - if `OPT1` => `O(log2(D/26) + (N-1)*log2(N*D/26))` per thread
+      - complexity of figuring out the next combination needs to be included
+        - for domain, `O(D/26)` and for each chunk after that, `O(log2(N*D/26) + Ci)`
+      - total for `OPT1` => `O(log2(D/26) + N*log2(N*D/26) + Ci + D/26)`
     - if `OPT2` => `O(N*(N + log2(D/26)))` per thread
     - assume Ci = 10 and N = 5
-      - `OPT1` complexity = `O(94)`
+      - `OPT1` complexity = `O(134738)` (majorly loses out due to linear complexity of figuring out next combination)
       - `OPT2` complexity = `O(110)`
-      - `OPT1` write complexity is slightly better
   - concatenation complexity = `O(N)`
-  - final insert complexity assuming `OPT1` = `O(110 + 10 + )`
+  - final insert complexity assuming `OPT2` = `O(120)`
 
 #### Get actual URL from short URL
 
@@ -165,14 +168,13 @@
 #### ADR Selection
 
 - SELECTED `ADR1_OPT3 (with underlying OPT1)` for shorter URLs and wider encoding space available
-- SELECTED `ADR2_OPT1` as while its slightly more complex, it has better insert complexity and similar search complexity
-  - this doesn't take into account how to figure out the latest combination which would require a linear max across O(D/26) which will push the cost way up
-  - can we have an `OPT2` like latest lookup table and see how that works?
+- SELECTED `ADR2_OPT2` as while its read complexity is similar, the insert complexity is way better due to storing the last used combination
 
 #### System limits
 
 - Currently one queue handles synchronous insertion
 - Path variables could be particularly challenging to deal with by increasing the number of combinations
+- More than 10 URL chunks are not supported by system
 
 #### Questions [TODO]
 
