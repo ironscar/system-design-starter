@@ -21,7 +21,8 @@
 
 ## Scale Considerations
 
-- There are about 3.5 million domains and then each domain will further have more path extensions with fewer encodings
+- There are about 3.5M domains and then each domain will further have more path extensions with fewer encodings
+- There may be upto 20M new short URLs generated per day => 232 requests per second
 
 ---
 
