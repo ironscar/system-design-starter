@@ -26,6 +26,24 @@
 
 ---
 
+## Approach to High-Level-Design
+
+1. Write down the problem description
+2. Figure out the initial functional and non-functional requirements
+3. Figure out the scale considerations
+4. Start with thoughts on how the process could work
+5. Then put together the DB design loosely
+6. Then model the processes for each type of flow loosely till everything makes sense
+7. Then model the caching strategy overall
+8. Note down any additional non-functional requirements, assumptions or scale considerations that come into play along the way
+9. Note down the current system's limits and which parts of it scale and don't scale to what degree
+10. If multiple options at any point, create an ADR for it and figure out how to select the winning option
+11. Draw the database diagram, architecture diagram and flow sequence diagrams for easy knowledge transfer
+12. Figure out how to do HA/DR? [TODO]
+13. Check if any of the initial thoughts can be improved by appropriate alternative technology or algorithm selection [TODO]
+
+---
+
 ## Solution Alternatives
 
 ### Solution 1
@@ -219,22 +237,20 @@
   - currently we can process `9 requests per second` with zero pressure
 - Path variables could be particularly challenging to deal with by increasing the number of combinations
 
-#### Todos
+#### Planned improvements
 
-1. Make diagrams for:
-   - Database diagram
-   - Architecture diagram
-   - Fetch flow sequence diagram
-   - Insert flow sequence diagram
-2. Can we improve write frequency latency?
+1. Can we improve write frequency latency?
    - Perhaps take batches of 25 chunks from the queue at a time (even if belonging to different domains since we are using `ADR2_OPT2` so should be fine) and insert them all in one DB transaction
    - 25 chunks because then 100ms could possibly cover 9*25 = 225 requests per second (close to our required write frequency)
-3. How to achieve high availability, disaster recovery and geographical replication?
-4. Do we use a relational DB or disk-based key-value DB like Aerospike?
-5. Should we use bloom filters to check existing?
+2. Can we use bloom filters to check existing?
    - during search existing phase of insert, it can definitely tell if it doesn't exist and move directly to insert phase
    - if it cannot definitely tell, then we do what we do today to search and if not really there, move to insert phase
    - we can store the bloom filter in table 1 based on `ADR2_OPT2` for each chunk index
-6. How to deal with path variables?
+
+#### Specific Todos
+
+1. How to achieve high availability, disaster recovery and geographical replication?
+2. Do we use a relational DB or disk-based key-value DB like Aerospike?
+3. Can we deal with path variables statistically?
 
 -------------------
