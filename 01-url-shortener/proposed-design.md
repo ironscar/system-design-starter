@@ -50,6 +50,10 @@
 
 - Given a long URL like `www.ti.com/product/OPA333/part-details/OPA333AIDCKR` (51 chars)
 
+<p align="center">
+  <img src="./diagrams/architecture.png" />
+</p>
+
 #### Assumptions
 
 - Not handling query or hash parameters (these will just be forwarded during redirect but not saved during creation of short URL)
@@ -79,6 +83,10 @@
 - so final URL becomes something like `www.my.ly/t0y-cx-31-A-13` (= 24 characters)
 
 #### Database design
+
+<p align="center">
+  <img src="./diagrams/db-design.png" />
+</p>
 
 - `ADR2_OPT1`: Chunks are reused across chunk index as well as domain
   - DB table 1 stores all the encodings for domain with the mappings
@@ -111,6 +119,10 @@
   - This will have larger search space per URL request but decrease overall table size
 
 #### Insert new URL to create short URL
+
+<p align="center">
+  <img src="./diagrams/insert-sequence.png" />
+</p>
 
 - First, split the url into the chunks by `/` and associate each chunk to the chunk index
   - we get partition keys as `domain = www.ti.com -> t`, `product -> 1`, `OPA333 -> 2`, `part-details -> 3`, `OPA333AIDCKR -> 4`
@@ -168,6 +180,10 @@
     - `ADR2_OPT2` = `O(40)`
 
 #### Fetch actual URL from short URL
+
+<p align="center">
+  <img src="./diagrams/search-sequence.png" />
+</p>
 
 - Comes to the page of the short URL website and then sends a REST request to the short URL backend
 - First, split the url into the chunks by `-` and associate each chunk to the chunk index
