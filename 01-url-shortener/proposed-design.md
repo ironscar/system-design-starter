@@ -258,6 +258,7 @@
 1. Can we improve write frequency latency?
    - Perhaps take batches of 25 chunks from the queue at a time (even if belonging to different domains since we are using `ADR2_OPT2` so should be fine) and insert them all in one DB transaction
    - 25 chunks because then 100ms could possibly cover 9*25 = 225 requests per second (close to our required write frequency)
+   - we can also shard the database per domain based on partition keys to distribute write throughput
 2. Can we use bloom filters to check existing?
    - during search existing phase of insert, it can definitely tell if it doesn't exist and move directly to insert phase
    - if it cannot definitely tell, then we do what we do today to search and if not really there, move to insert phase
