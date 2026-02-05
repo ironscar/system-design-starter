@@ -48,8 +48,8 @@
   1. `OPT 1`: Fixed length encoding
     - PROs
       - short URL looks fine
-      - doesn't have an upper limit to what can be supported
     - CONs
+      - has an upper limit to what can be supported
       - fewer number of combinations than would be possible with using variable length encodings as `aa` and `a` can coexist in the latter
   2. `OPT 2`: Variable length encoding starting at 1
     - PROs
