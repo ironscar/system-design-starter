@@ -13,7 +13,7 @@
 
 ## Things to look into
 
-1. What are some strategies for avoiding hash collisions?
+1. What are some strategies for avoiding hash collisions? [`3-post-review-design#Hash Collision Resolution Strategies`]
 
 ## Things you could have done better
 
