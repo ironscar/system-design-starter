@@ -44,19 +44,77 @@
                 console.log('migrations as percentage of total data = ' + (migrationsReq * 100)/m);
             }
 
+            /**
+             * 32-bit murmur hash gives the position on a hash ring of 2^32 items (0 to 4,294,967,295)
+             */
+            function murmurHash(key) {
+                // specifically chosen prime numbers
+                let c1 = 0xcc9e2d51;
+                let c2 = 0x1b873593;
+
+                // other random constants
+                let d1 = 0x85ebca6b;
+                let d2 = 0xc2b2ae35;
+
+                // rotation constants
+                let r1 = 15;
+                let r2 = 13;
+                let r3 = 16;
+                
+                // multiplier constant
+                let m = 5;
+                let n = 0xe6546b64;
+
+                // initial seed value in hash
+                let hash = 0x00000001;
+
+                // use encoder to get bytes of string and process them in chunks of 4 bytes
+                let encoder = new TextEncoder();
+                const bytes = encoder.encode(key);
+                const view = new DataView(bytes.buffer);
+                let offset = 0;
+                while (bytes.length - offset >= 4) {
+                    let k = view.getUint32(offset, true);
+                    offset += 4;
+                    k = Math.imul(k,c1);
+                    k = (k << r1) | (k >>> (32 - r1));
+                    k = Math.imul(k,c2);
+                    hash ^= k;
+                    hash = (hash << r2) | (hash >>> (32 - r2));
+                    hash = (hash*m) + n;
+                }
+
+                // take remaining bytes and safely construct u32 int because getUint32 will fail if less than 4 bytes
+                let k1 = 0;
+                switch (bytes.length - offset) {
+                    case 3: k1 ^= bytes[offset + 2] << 16;
+                    case 2: k1 ^= bytes[offset + 1] << 8;
+                    case 1: k1 ^= bytes[offset];
+                }
+                k1 = Math.imul(k1,c1);
+                k1 = (k1 << r1) | (k1 >>> (32 - r1));
+                k1 = Math.imul(k1,c2);
+                hash ^= k1;
+
+                // final hash updates
+                hash ^= bytes.length;
+                hash ^= hash >> r3;
+                hash = Math.imul(hash,d1);
+                hash ^= hash >> r2;
+                hash = Math.imul(hash,d2);
+                hash ^= hash >> r3;
+
+                return hash;
+            }
+            
             function rebalanceRingShard() {
                 let migrationsReq = 0;
                 initialize();
 
-                // TODO: set data within shards as per ring (check if implementation is correct because ideally it should be around 1/N)
-                for (var i = 0; i < m ; i++) {
-                    var angle = i%360;
-                    oldShardsList[angle%n1].push(i);
-                    oldShardsList[angle%n2].push(i);
-                    if (angle%n1 != angle%n2) {
-                        migrationsReq++;
-                    }
-                }
+                // TODO: implement hash ring and see rebalancing effort
+                const randomString = 'reugfruhgergtrgfkruefyt43ut843rfgie';
+                const position = murmurHash(randomString);
+                console.log('trial hash val = ' + position);
 
                 // display data
                 console.log('For ring shard:');
