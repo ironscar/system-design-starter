@@ -5,17 +5,20 @@
         <script>
             var m = 0;
             var n1 = 0;
-            var n2 = 0;
-            var oldShardsList = [];
-            var newShardsList = [];
+            var n2 = 0;            
 
             function initialize() {
                 m = parseInt(document.getElementById('totalRecords').value);
                 n1 = parseInt(document.getElementById('oldShards').value);
                 n2 = parseInt(document.getElementById('newShards').value);
-                oldShardsList = [];
-                newShardsList = [];
+            }
 
+            function rebalanceModShard() {
+                let migrationsReq = 0;
+                var oldShardsList = [];
+                var newShardsList = [];
+                initialize();
+                
                 // initialize shard lists
                 for (var i = 0 ; i < n1 ; i++) {
                     oldShardsList.push([]);
@@ -23,11 +26,6 @@
                 for (var i = 0 ; i < n2 ; i++) {
                     newShardsList.push([]);
                 }
-            }
-
-            function rebalanceModShard() {
-                let migrationsReq = 0;
-                initialize();
 
                 // set data within shards as per modulo
                 for (var i = 0 ; i < m ; i++) {
@@ -41,7 +39,7 @@
                 // display data
                 console.log('For modulo shard:');
                 console.log('number of migrations required = ' + migrationsReq);
-                console.log('migrations as percentage of total data = ' + (migrationsReq * 100)/m);
+                console.log('migrations as percentage of total data = ' + (migrationsReq * 100)/m + '%');
             }
 
             /**
@@ -108,18 +106,85 @@
             }
             
             function rebalanceRingShard() {
+                let startTime = new Date().getTime();
+                console.log('started');
                 let migrationsReq = 0;
+                let oldShardPositions = [];
+                let newShardPositions = [];
+                let keyPositions = [];
+                let oldShardHoldings = [];
+                let newShardHoldings = [];
+                let displayShardDistributions = true;
                 initialize();
 
-                // TODO: implement hash ring and see rebalancing effort
-                const randomString = 'reugfruhgergtrgfkruefyt43ut843rfgie';
-                const position = murmurHash(randomString);
-                console.log('trial hash val = ' + position);
+                // init shard names, shard positions, shard holdings and key positions
+                for (let i = 0; i < n1 ; i++) {
+                    oldShardPositions.push({ name: `shard-${i}`, position: murmurHash(`shard-${i}`) });
+                    oldShardHoldings.push([]);
+                }
+                for (let i = 0; i < n2 ; i++) {
+                    newShardPositions.push({ name: `shard-${i}`, position: murmurHash(`shard-${i}`) });
+                    newShardHoldings.push([]);
+                }
+                for (let i = 0 ; i < m ; i++) {
+                    keyPositions.push(murmurHash(`https://${Math.random().toString(36).substring(2)}`));
+                }
+
+                // sort shard positions
+                oldShardPositions.sort((a, b) => a.position - b.position);
+                newShardPositions.sort((a, b) => a.position - b.position);
+
+                // implement hash ring and see rebalancing effort
+                for (let i = 0; i < m; i++) {
+                    let oldShardIndex = 0;
+                    let newShardIndex = 0;
+                    let selectedOldShard = null;
+                    let selectedNewShard = null;
+                    while (oldShardIndex < n1 && keyPositions[i] > oldShardPositions[oldShardIndex].position) {
+                        oldShardIndex++;
+                    }
+                    while (newShardIndex < n2 && keyPositions[i] > newShardPositions[newShardIndex].position) {
+                        newShardIndex++;
+                    }
+                    oldShardIndex = oldShardIndex == n1 || oldShardIndex == 0 ? 0 : oldShardIndex - 1;
+                    newShardIndex = newShardIndex == n2 || newShardIndex == 0 ? 0 : newShardIndex - 1;
+                    selectedOldShard = oldShardPositions[oldShardIndex].name;
+                    selectedNewShard = newShardPositions[newShardIndex].name;
+                    oldShardHoldings[oldShardIndex].push(keyPositions[i]);
+                    newShardHoldings[newShardIndex].push(keyPositions[i]);
+                    if (selectedOldShard !== selectedNewShard) {
+                        migrationsReq++;
+                    }
+                }
+
+                // count empty shards
+                let emptyOldShards = 0;
+                for (let i = 0; i < n1; i++) {
+                    if (oldShardHoldings[i].length === 0) {
+                        emptyOldShards++;
+                    }
+                    if (displayShardDistributions && n1 <= 30) {
+                        console.log(`Old Shard ${oldShardPositions[i].name} holds ${oldShardHoldings[i].length * 100 / m}% keys`);
+                    }
+                }
+                let emptyNewShards = 0;
+                for (let i = 0; i < n2; i++) {
+                    if (newShardHoldings[i].length === 0) {
+                        emptyNewShards++;
+                    }
+                    if (displayShardDistributions && n2 <= 30) {
+                        console.log(`New Shard ${newShardPositions[i].name} holds ${newShardHoldings[i].length * 100 / m}% keys`);
+                    }
+                }
+                let endTime = new Date().getTime();
 
                 // display data
                 console.log('For ring shard:');
                 console.log('number of migrations required = ' + migrationsReq);
-                console.log('migrations as percentage of total data = ' + (migrationsReq * 100)/m);
+                console.log('migrations as percentage of total data = ' + (migrationsReq * 100)/m + '%');
+                console.log(`Empty old shards = ${emptyOldShards}`);
+                console.log(`Empty new shards = ${emptyNewShards}`);
+                console.log('Rebalancing time = ' + (endTime - startTime) + ' ms');
             }
         </script>
     </head>
@@ -127,15 +192,15 @@
         <h2>Shard Rebalancing Calculator</h2>
         <div>
             <label for="totalRecords">Total Records:</label>
-            <input type="number" id="totalRecords" value="100000" />
+            <input type="number" id="totalRecords" value="10000000" />
         </div>
         <div>
             <label for="oldShards">Number of Old Shards:</label>
-            <input type="number" id="oldShards" value="50" />
+            <input type="number" id="oldShards" value="21" />
         </div>
         <div>
             <label for="newShards">Number of New Shards:</label>
-            <input type="number" id="newShards" value="40" />
+            <input type="number" id="newShards" value="18" />
         </div>
         <button onclick="rebalanceModShard()">Rebalance Modulo Shard</button>
         <button onclick="rebalanceRingShard()">Rebalance Ring Shard</button>
