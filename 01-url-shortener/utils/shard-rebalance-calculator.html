@@ -117,6 +117,8 @@
                 let displayShardDistributions = true;
                 initialize();
 
+                // TODO: Implement for URL shortener to reduce position length and with virtual shards to see collision or width details
+
                 // init shard names, shard positions, shard holdings and key positions
                 for (let i = 0; i < n1 ; i++) {
                     oldShardPositions.push({ name: `shard-${i}`, position: murmurHash(`shard-${i}`) });
