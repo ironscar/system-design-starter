@@ -253,7 +253,47 @@
 </html>
 
 <!-- 
+
 # FINDINGS
+
+## COMPLEXITY
+
+### WRITE COMPLEXITY
+
+- MurmurHash of each URL
+- Then comparing the URL hash with the hashes of all virtual shards and figuring out the physical shard and put it in the corresponding queue
+- Then actual complexity of batch insert
+
+### READ COMPLEXITY
+
+- Decode physical shard index from URL
+- Then actual search complexity of the rest of the decoded URL
+
+----------------------------------------------------------------------------------------------------------------------------------
+
+## SPIKE HANDLES
+
+- 100 shards can be added/removed with roughly 5% migrations
+- 100 shards handle 2K req/s per shard = 200K req/s total
+- 5% of data = 275GB data
+- data migration can be handled in parallel for each source which at max = 0.07% = 3.85GB
+- rebalancing process would be like (total time ~3 hours)
+    - spin up new shard instances if required (30 minutes)
+    - spin up compute in parallel for hash ring updates and data migration (30 minutes) based on number of shards
+    - send new hash ring updates to all service instances (60 minutes)
+    - migrate at max 3.85GB records from each shard in separate compute cluster (60 minutes)
+    - tear down compute cluster and any old shard instances if required
+- So it handles spike rates of 200K RPS change in 3 hours
+    - services can start writing to new shards within 2 hours and requests may end up with double latency in the final hour
+
+----------------------------------------------------------------------------------------------------------------------------------
+
+## IMPROVEMENTS TO TRY
+
+- Currently lots of physical shards remain unused due to distributions, can we do better with some other way of shard distributions?
+- Check if the current spike handles are good enough or could it be better?
+
+----------------------------------------------------------------------------------------------------------------------------------
 
 ## ASSUMPTIONS
 
@@ -275,7 +315,53 @@
 - Number of key migrations required between physical shards = 20.8%
     - key migrations in the basic module setup = 80% so we are nearly four times better
     - maximum migrations from any one physical source = 0.4%
-    - 20% is still a lot
+    - 20% is still a lot though removing 1000 shards at once is also not very realistic probably
+
+----------------------------------------------------------------------------------------------------------------------------------
+
+## ASSUMPTIONS
+
+- 1000000 keys
+- 5000 physical shards -> 4000 physical shards
+- 10 virtual shards per physical shard
+- precision = 5
+
+## RESULTS
+
+- No physical shards removed due to collisions
+- Physical shards rendered empty due to key distribution in old state = 413 (thats not great utilization)
+- Physical shards rendered empty due to key distribution in new state = 151
+- Migration percentage = 41.2% and maximum migration from one source = 0.07%
+
+----------------------------------------------------------------------------------------------------------------------------------
+
+## ASSUMPTIONS
+
+- 1000000 keys
+- 5000 physical shards -> 4900 physical shards
+- 10 virtual shards per physical shard
+- precision = 5
+
+## RESULTS
+
+- Physical shards rendered empty due to key distribution in old state = 413 (thats not great utilization)
+- Physical shards rendered empty due to key distribution in new state = 377
+- Migration percentage = 5% and maximum migration from one source = 0.07%
+
+----------------------------------------------------------------------------------------------------------------------------------
+
+## ASSUMPTIONS
+
+- 1000000 keys
+- 4800 physical shards -> 4900 physical shards
+- 10 virtual shards per physical shard
+- precision = 5
+
+## RESULTS
+
+- Physical shards rendered empty due to key distribution in old state = 339 (thats not great utilization)
+- Physical shards rendered empty due to key distribution in new state = 377
+- Migration percentage = 5% and maximum migration from one source = 0.07%
 
 ----------------------------------------------------------------------------------------------------------------------------------
 
