@@ -4,13 +4,17 @@
         <title>Shard Rebalancing Calculator</title>
         <script>
             var m = 0;
+            var p = 0;
             var n1 = 0;
-            var n2 = 0;            
+            var n2 = 0;
+            var v = 0;            
 
             function initialize() {
                 m = parseInt(document.getElementById('totalRecords').value);
+                p = parseInt(document.getElementById('precision').value);
                 n1 = parseInt(document.getElementById('oldShards').value);
                 n2 = parseInt(document.getElementById('newShards').value);
+                v = parseInt(document.getElementById('virtualShards').value);
             }
 
             function rebalanceModShard() {
@@ -44,8 +48,9 @@
 
             /**
              * 32-bit murmur hash gives the position on a hash ring of 2^32 items (0 to 4,294,967,295)
+             * reduces hash by "precision" digits
              */
-            function murmurHash(key) {
+            function murmurHash(key, precision) {
                 // specifically chosen prime numbers
                 let c1 = 0xcc9e2d51;
                 let c2 = 0x1b873593;
@@ -102,7 +107,7 @@
                 hash = Math.imul(hash,d2);
                 hash ^= hash >> r3;
 
-                return hash;
+                return Math.floor(hash/Math.pow(10, precision));
             }
             
             function rebalanceRingShard() {
@@ -115,26 +120,50 @@
                 let oldShardHoldings = [];
                 let newShardHoldings = [];
                 let displayShardDistributions = true;
+                let migrationsBySource = [];
                 initialize();
-
-                // TODO: Implement for URL shortener to reduce position length and with virtual shards to see collision or width details
 
                 // init shard names, shard positions, shard holdings and key positions
                 for (let i = 0; i < n1 ; i++) {
-                    oldShardPositions.push({ name: `shard-${i}`, position: murmurHash(`shard-${i}`) });
+                    let shardName = `shard-${i}`;
+                    for (let j = 0 ; j < v ; j++) {
+                        oldShardPositions.push({ name: shardName + `-${j}`, position: murmurHash(shardName + `-${j}`, p)});
+                    }
                     oldShardHoldings.push([]);
+                    migrationsBySource.push(0);
                 }
                 for (let i = 0; i < n2 ; i++) {
-                    newShardPositions.push({ name: `shard-${i}`, position: murmurHash(`shard-${i}`) });
+                    let shardName = `shard-${i}`;
+                    for (let j = 0 ; j < v ; j++) {
+                        newShardPositions.push({ name: shardName + `-${j}`, position: murmurHash(shardName + `-${j}`, p)});
+                    }
                     newShardHoldings.push([]);
                 }
                 for (let i = 0 ; i < m ; i++) {
-                    keyPositions.push(murmurHash(`https://${Math.random().toString(36).substring(2)}`));
+                    keyPositions.push(murmurHash(`https://${Math.random().toString(36).substring(2)}`, p));
                 }
 
                 // sort shard positions
                 oldShardPositions.sort((a, b) => a.position - b.position);
                 newShardPositions.sort((a, b) => a.position - b.position);
+
+                // remove duplicate entries as they will be similar to the next element
+                for (let i = 1; i < n1; i++) {
+                    if (oldShardPositions[i].position === oldShardPositions[i - 1].position) {
+                        oldShardPositions[i-1] = null;
+                    }
+                }
+                oldShardPositions = oldShardPositions.filter((v => v !== null));
+                let ovl = oldShardPositions.length;
+                for (let i = 1; i < n2; i++) {
+                    if (newShardPositions[i].position === newShardPositions[i - 1].position) {
+                        newShardPositions[i-1] = null;
+                    }
+                }
+                newShardPositions = newShardPositions.filter((v => v !== null));
+                let nvl = newShardPositions.length;
+                console.log('Old virtual shard count after removing collisions = ' + ovl);
+                console.log('New virtual shard count after removing collisions = ' + nvl);
 
                 // implement hash ring and see rebalancing effort
                 for (let i = 0; i < m; i++) {
@@ -142,20 +171,25 @@
                     let newShardIndex = 0;
                     let selectedOldShard = null;
                     let selectedNewShard = null;
-                    while (oldShardIndex < n1 && keyPositions[i] > oldShardPositions[oldShardIndex].position) {
+                    while (oldShardIndex < ovl && keyPositions[i] > oldShardPositions[oldShardIndex].position) {
                         oldShardIndex++;
                     }
-                    while (newShardIndex < n2 && keyPositions[i] > newShardPositions[newShardIndex].position) {
+                    while (newShardIndex < nvl && keyPositions[i] > newShardPositions[newShardIndex].position) {
                         newShardIndex++;
                     }
-                    oldShardIndex = oldShardIndex == n1 || oldShardIndex == 0 ? 0 : oldShardIndex - 1;
-                    newShardIndex = newShardIndex == n2 || newShardIndex == 0 ? 0 : newShardIndex - 1;
+                    oldShardIndex = oldShardIndex == ovl || oldShardIndex == 0 ? 0 : oldShardIndex - 1;
+                    newShardIndex = newShardIndex == nvl || newShardIndex == 0 ? 0 : newShardIndex - 1;
                     selectedOldShard = oldShardPositions[oldShardIndex].name;
                     selectedNewShard = newShardPositions[newShardIndex].name;
-                    oldShardHoldings[oldShardIndex].push(keyPositions[i]);
-                    newShardHoldings[newShardIndex].push(keyPositions[i]);
-                    if (selectedOldShard !== selectedNewShard) {
+
+                    let oldPhysicalShardIndex = selectedOldShard.substring(selectedOldShard.indexOf('-') + 1, selectedOldShard.lastIndexOf('-'));
+                    let newPhysicalShardIndex = selectedNewShard.substring(selectedNewShard.indexOf('-') + 1, selectedNewShard.lastIndexOf('-'));
+
+                    oldShardHoldings[oldPhysicalShardIndex].push(keyPositions[i]);
+                    newShardHoldings[newPhysicalShardIndex].push(keyPositions[i]);
+                    if (oldPhysicalShardIndex !== newPhysicalShardIndex) {
                         migrationsReq++;
+                        migrationsBySource[oldPhysicalShardIndex]++;
                     }
                 }
 
@@ -166,7 +200,7 @@
                         emptyOldShards++;
                     }
                     if (displayShardDistributions && n1 <= 30) {
-                        console.log(`Old Shard ${oldShardPositions[i].name} holds ${oldShardHoldings[i].length * 100 / m}% keys`);
+                        console.log(`Old Shard ${i} holds ${oldShardHoldings[i].length * 100 / m}% keys`);
                     }
                 }
                 let emptyNewShards = 0;
@@ -175,7 +209,7 @@
                         emptyNewShards++;
                     }
                     if (displayShardDistributions && n2 <= 30) {
-                        console.log(`New Shard ${newShardPositions[i].name} holds ${newShardHoldings[i].length * 100 / m}% keys`);
+                        console.log(`New Shard ${i} holds ${newShardHoldings[i].length * 100 / m}% keys`);
                     }
                 }
                 let endTime = new Date().getTime();
@@ -183,6 +217,7 @@
                 // display data
                 console.log('For ring shard:');
                 console.log('number of migrations required = ' + migrationsReq);
+                console.log('max migrations from one source = ' + Math.max(...migrationsBySource));
                 console.log('migrations as percentage of total data = ' + (migrationsReq * 100)/m + '%');
                 console.log(`Empty old shards = ${emptyOldShards}`);
                 console.log(`Empty new shards = ${emptyNewShards}`);
@@ -194,17 +229,54 @@
         <h2>Shard Rebalancing Calculator</h2>
         <div>
             <label for="totalRecords">Total Records:</label>
-            <input type="number" id="totalRecords" value="10000000" />
+            <input type="number" id="totalRecords" value="1000000" />
+        </div>
+        <div>
+            <label for="precision">Precision:</label>
+            <input type="number" id="precision" value="5" />
         </div>
         <div>
             <label for="oldShards">Number of Old Shards:</label>
-            <input type="number" id="oldShards" value="21" />
+            <input type="number" id="oldShards" value="500" />
         </div>
         <div>
             <label for="newShards">Number of New Shards:</label>
-            <input type="number" id="newShards" value="18" />
+            <input type="number" id="newShards" value="400" />
+        </div>
+        <div>
+            <label for="virtualShards">Virtual Shards per Physical Shard:</label>
+            <input type="number" id="virtualShards" value="10" />
         </div>
         <button onclick="rebalanceModShard()">Rebalance Modulo Shard</button>
         <button onclick="rebalanceRingShard()">Rebalance Ring Shard</button>
     </body>
 </html>
+
+<!-- 
+# FINDINGS
+
+## ASSUMPTIONS
+
+- 1000000 keys
+- 500 physical shards -> 400 physical shards
+- 10 virtual shards per physical shard on hash ring
+- precision = 5
+
+## RESULTS
+
+- Removing collided virtual shards from the old shards leads to 4934 virtual shards but luckily no physical shard is completely removed
+    - additionally there were also no empty physical shards after distributing keys
+    - so no wasted shards in old state
+    - but non-zero chance for some physical shards to get completely removed due to collisions or uneven distribution
+- Removing collided virtual shards from the old shards leads to 3957 virtual shards but luckily no physical shard is completely removed
+    - additionally there were also no empty physical shards after distributing keys
+    - so no wasted shards in new state
+    - but non-zero chance for some physical shards to get completely removed due to collisions or uneven distribution
+- Number of key migrations required between physical shards = 20.8%
+    - key migrations in the basic module setup = 80% so we are nearly four times better
+    - maximum migrations from any one physical source = 0.4%
+    - 20% is still a lot
+
+----------------------------------------------------------------------------------------------------------------------------------
+
+-->
