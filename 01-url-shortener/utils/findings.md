@@ -171,5 +171,14 @@
   - refer to results.log
     - for equi-shards: sweet spot is at 2530 with max = 555 (chosen due to better P95 shard coverage % (95%) and 0 empty shards)
     - for murmur-shards: sweet spot is at 2620 with max = 993 (P95 shard coverage % (90%) and 13 empty shards)
-- To support the extreme write throughput, we have to use a very high shard count where equi-shard config has better distribution then murmur-shard config
-  - we use 2530 shards overall in equi-shard config
+- At extreme write throughput, the equi-shard config seems to be better (as seen from 1M keys example), but this is only about supporting write throughput with about 110 fewer shards
+    - eventually, once more keys come in, the distribution for the murmur-shard config will be better (as seen from 50M keys example)
+    - the read throughput for the equi-shard config will be much worse (around 20x on the shard with most keys)
+    - therefore, the comparison will be offset if the equi-shard config needs just as many shards as read replicas to support the required read throughput
+    - assuming 20 threads per replica, 2 replicas per shard and each read is 2ms (50 in 1000ms)
+      - equi-shard config read throughput = 2530 * 3 * 20 * 50 = 7.59M reads in 100ms (without taking into account the 20% degradation on hottest shard)
+          - adding the 20% penalty as 7.59 * 1.2 = 9.1M reads in 100ms
+      - murmur-shard config read throughput = 2620 * 3 * 20 * 50 = 7.86M reads in 100ms
+      - the difference = 9.1M - 77.86M = 1.25M
+      - number of additional read replicas required for equi-shard config to offset this = 1.25M / (3 * 20 * 50) = 416
+- Overall, use murmur-shard config with 2620 writer shards overall
