@@ -9,7 +9,8 @@
             var n2 = 0;
             var v = 0;
             var r1 = 0;
-            var r2 = 0;         
+            var r2 = 0;   
+            var s = 0;      
             var keyPositions = [];   
 
             function initialize(initializeKeys = false) {
@@ -20,6 +21,7 @@
                 v = parseInt(document.getElementById('virtualShards').value);
                 r1 = parseInt(document.getElementById('rangeMin').value);
                 r2 = parseInt(document.getElementById('rangeMax').value);
+                s = parseInt(document.getElementById('rangeStep').value);
 
                 if (initializeKeys) {
                     keyPositions = [];
@@ -253,10 +255,11 @@
                 initialize(true);
 
                 let minEmptyShards = r2;
-                let minSD = r2;
+                let minP95 = m;
                 let optimalK = 0;
+                let percentile = 95;
 
-                for (let k = r2; k >= r1; k -= 100) {
+                for (let k = r2; k >= r1; k -= s) {
                     // init shards
                     let shardPositions = [];
                     let shardHoldings = [];
@@ -293,42 +296,66 @@
                         shardHoldings[physicalShardIndex].push(keyPositions[i]);
                     }
 
-                    // count empty shards, mean and standard deviation
+                    // sort the holdings by number of keys in each shard in ascending order
+                    shardHoldings.sort((a, b) => a.length - b.length);
+
+                    // count empty shards, min, mean, max and p95
+                    let mean = m/k;
+                    let min = shardHoldings[0].length;
+                    let max = shardHoldings[k - 1].length;
+
                     let emptyShards = 0;
-                    let mean = 0;
-                    let sd = 0;
-                    let min = r2;
-                    let max = 0;
+                    let meanIndex = -1;
+                    let leftTotal = 0;
+                    let rightTotal = 0;
+
                     for (let i = 0; i < k; i++) {
                         if (shardHoldings[i].length === 0) {
                             emptyShards++;
                         }
-                        mean += shardHoldings[i].length;
-                        min = Math.min(min, shardHoldings[i].length);
-                        max = Math.max(max, shardHoldings[i].length);
-                    }
-                    mean /= k;
-                    for (let i = 0; i < k; i++) {
-                        sd += Math.pow(shardHoldings[i].length - mean, 2);
-                    }
-                    sd = Math.sqrt(sd / k);
 
-                    // check minimal deviation and store shard count
-                    if (sd < minSD) {
+                        // check for how many holdings on either side of mean
+                        if (shardHoldings[i].length >= mean) {
+                            meanIndex = meanIndex === -1 ? i : meanIndex;
+                            rightTotal += shardHoldings[i].length;
+                        } else {
+                            leftTotal += shardHoldings[i].length;
+                        }
+                    }
+
+                    let temmpSum = 0;
+                    let p95Left = leftTotal * (percentile / 100);
+                    let p95LeftDeviation = 0;
+                    for (let i = meanIndex - 1; i >= 0 ; i--) {
+                        temmpSum += shardHoldings[i].length;
+                        if (temmpSum >= p95Left) {
+                            p95LeftDeviation = mean - shardHoldings[i].length;
+                            break;
+                        }
+                    }
+                    temmpSum = 0;
+                    let p95Right = rightTotal * (percentile / 100);
+                    let p95RightDeviation = 0;
+                    for (let i = meanIndex; i < k; i++) {
+                        temmpSum += shardHoldings[i].length;
+                        if (temmpSum >= p95Right) {
+                            p95RightDeviation = shardHoldings[i].length - mean;
+                            break;
+                        }
+                    }
+
+                    // defines the deviation on either side of mean for 95% of values and check for minimum
+                    let p95 = p95LeftDeviation + p95RightDeviation;
+                    console.log(`Iteration ${k}: empty shards = ${emptyShards}, min = ${min}, mean = ${mean.toFixed(2)}, max = ${max}, p95Left = ${p95LeftDeviation.toFixed(2)}, p95Right = ${p95RightDeviation.toFixed(2)}`);
+                    if (p95 < minP95) {
                         minEmptyShards = emptyShards;
-                        minSD = sd;
+                        minP95 = p95;
                         optimalK = k;
-                    }
-                    console.log(`Iteration ${k}: empty shards = ${emptyShards}, min = ${min}, mean = ${mean.toFixed(2)}, max = ${max}, sd = ${sd.toFixed(2)}`);
-
-                    // break if data is so spread out that distribution is no longer normal (as sd >= mean implies negative values exist for it to be normal which may imply empty shards too)
-                    if (sd >= mean) {
-                        break;
                     }
                 }
 
                 let endTime = new Date().getTime();
-                console.log(`Optimal shard count = ${optimalK} with empty shards = ${minEmptyShards} and standard deviation = ${minSD.toFixed(2)}`);
+                console.log(`Optimal shard count = ${optimalK} with empty shards = ${minEmptyShards} and p95 = ${minP95.toFixed(2)}`);
                 console.log(`Execution time = ${endTime - startTime} ms`);
             }
 
@@ -346,7 +373,7 @@
         <h2>Shard Rebalancing Calculator</h2>
         <div>
             <label for="totalRecords">Total Records:</label>
-            <input type="number" id="totalRecords" value="1000000" />
+            <input type="number" id="totalRecords" value="5000000" />
         </div>
         <div>
             <label for="precision">Precision:</label>
@@ -370,11 +397,15 @@
         <h2>Optimal Shard Count Comparison</h2>
         <div>
             <label for="rangeMin">Range min:</label>
-            <input type="number" id="rangeMin" value="1000" />
+            <input type="number" id="rangeMin" value="10" />
         </div>
         <div>
             <label for="rangeMax">Range max:</label>
-            <input type="number" id="rangeMax" value="6000" />
+            <input type="number" id="rangeMax" value="500" />
+        </div>
+        <div>
+            <label for="rangeStep">Range step:</label>
+            <input type="number" id="rangeStep" value="10" />
         </div>
         <button onclick="compareOptimalShardCounts()">Compare Optimal Shard Counts</button>
     </body>
@@ -506,31 +537,31 @@
 
 ## OPTIMAL SHARD COUNTS
 
+### METRIC DESCRIPTION
+
+- We find the sum of the distance of 95% values that fall below mean and distance of 95% values that fall above mean (more trusty than standard deviation)
+- lower the p95 value, closer the number of keys distributed per shard
+
+### 1M KEYS & 1K-6K SHARDS
+
 - For 1M keys (which ought to be handled in 100ms), lets try to find the optimal equidistant-shardCounts and compare it to optimal murmurhash-shardCounts
+- For a range of 1000 to 6000, optimal shard count for equi-shard distribution = 5000
+    - empty shards = 749
+    - p95 deviation = 14 on the left and 72 on the right of mean
+- For a range of 1000 to 6000, optimal shard count for murmur-shard distribution = 5700
+    - empty shards = 710
+    - p95 deviation = 132 on the left and 346 on the right of mean
+- Murmurhash did have empty shards at 1800 shards but its p95 value was much greater
+    - since the distribution is sparse (1M is not the same as 50B while keeping same shard count), we will ignore the empty shards
 
-### STANDARD DEVIATIONS
+### 5M KEYS & 10-60 SHARDS
 
-- Standard deviations are low when shard counts are high and empty shards are low when shard counts are low
-- For a range of 1000 to 6000, optimal shard count for equi-shard distribution = 2500
-    - minimal empty shards to minimal max to minimal SD (sort of qualitatively)
-    - empty shards = 389
-    - standard deviation = 163.82
-    - mean = 385
-    - max = 534
-- For a range of 1000 to 6000, optimal shard count for murmur-shard distribution = 1800
-    - minmal max to minimal SD when empty shards = 0
-    - empty shards = 0
-    - standard deviation = 221.28
-    - mean = 555.56
-    - max = 1430
-
-### P95 DEVIATIONS [TODO]
-
-- consider finding the distance of 95% values that fall below mean and distance of 95% values that fall above mean (little more trusty than standard deviation)
-- (max(belowMeanDistance, aboveMeanDistance) - mean) specifies the deviation of 95% of values from the mean on either side is equal to the mean
-    - sort of implies that there are no empty shards
-- For a range of 1000 to 6000, optimal shard count for equi-shard distribution = 
-- For a range of 1000 to 6000, optimal shard count for murmur-shard distribution = 
+- Let's repeat For 5M keys and range of 10-60 shards as that is closer to the distribution statistics if we consider 50B keys on 1-6K shards
+- We specifically find only those configs which have no empty shards
+- Optimal shard count for equi-shard distribution = 50
+    - p95 deviation = 98.8K on the left and 4900.8K on the right of mean
+- Optimal shard count for murmur-shard distribution = 60
+    - p95 deviation = 43.7K on the left and 125.6K on the right of mean
 
 ----------------------------------------------------------------------------------------------------------------------------------
 
@@ -538,7 +569,9 @@
 
 - Equidistant sharding tends to have much better migration statistics but worse key distrbution with the same shard counts
 - Considering that ultimately the shards that get the keys are the ones that will handle the write throughput, it makes sense to optimize key distribution
-- Based on standard deviations, murmurhash-based sharding provides a more balanced key distribution with fewer empty shards for lower shard counts
-    - for 1M keys, 1800 shards is a good balance
+- P95 value is much lesser for Murmur-shard configuration signifying that distribution is more equal across shards than the Equi-shard configuration
+    - this was true when the raio of number of keys (5M) to the number of shards (50) were closer to the actual scale (50B keys, 5K shards)
+- Murmur-shard configuration also had consistently fewer empty shards than the equi-shard configuration
+- Thus the murmur-shard configuration is better at consistent scale
 
 -->
