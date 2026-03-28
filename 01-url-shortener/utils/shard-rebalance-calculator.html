@@ -253,6 +253,7 @@
                 initialize(true);
 
                 let minEmptyShards = r2;
+                let minSD = r2;
                 let optimalK = 0;
 
                 for (let k = r2; k >= r1; k -= 100) {
@@ -292,29 +293,33 @@
                         shardHoldings[physicalShardIndex].push(keyPositions[i]);
                     }
 
-                    // count empty shards
+                    // count empty shards, mean and standard deviation
                     let emptyShards = 0;
+                    let mean = 0;
+                    let sd = 0;
                     for (let i = 0; i < k; i++) {
                         if (shardHoldings[i].length === 0) {
                             emptyShards++;
                         }
+                        mean += shardHoldings[i].length;
                     }
+                    mean /= k;
+                    for (let i = 0; i < k; i++) {
+                        sd += Math.pow(shardHoldings[i].length - mean, 2);
+                    }
+                    sd = Math.sqrt(sd / k);
 
-                    // check minimal empty shards and store shardCount
-                    if (emptyShards < minEmptyShards) {
+                    // check minimal deviation and store shard count
+                    if (sd < minSD) {
                         minEmptyShards = emptyShards;
+                        minSD = sd;
                         optimalK = k;
                     }
-                    console.log(`Iteration ${k}: empty shards = ${emptyShards}`);
-
-                    // break if empty shards = 0
-                    if (emptyShards === 0) {
-                        break;
-                    }
+                    console.log(`Iteration ${k}: empty shards = ${emptyShards}, mean = ${mean.toFixed(2)}, sd = ${sd.toFixed(2)}`);
                 }
 
                 let endTime = new Date().getTime();
-                console.log(`Optimal shard count = ${optimalK} with empty shards = ${minEmptyShards}`);
+                console.log(`Optimal shard count = ${optimalK} with empty shards = ${minEmptyShards} and standard deviation = ${minSD.toFixed(2)}`);
                 console.log(`Execution time = ${endTime - startTime} ms`);
             }
 
@@ -353,9 +358,10 @@
         <button onclick="rebalanceModShard()">Rebalance Modulo Shard</button>
         <button onclick="rebalanceRingShard()">Rebalance Ring Shard</button>
         <hr>
+        <h2>Optimal Shard Count Comparison</h2>
         <div>
             <label for="rangeMin">Range min:</label>
-            <input type="number" id="rangeMin" value="1000" />
+            <input type="number" id="rangeMin" value="100" />
         </div>
         <div>
             <label for="rangeMax">Range max:</label>
@@ -489,16 +495,17 @@
 
 ----------------------------------------------------------------------------------------------------------------------------------
 
+## OPTIMAL SHARD COUNTS
+
+- For 1M keys (which ought to be handled in 100ms), lets try to find the optimal equidistant-shardCounts and compare it to optimal murmurhash-shardCounts
+- For a range of 100 to 4000, optimal shard count based on minimal SD for equi-shard distribution = 
+- For a range of 100 to 4000, optimal shard count based on minimal SD for murmur-shard distribution = 
+
+----------------------------------------------------------------------------------------------------------------------------------
+
 ## CONCLUSIONS
 
 - Equidistant sharding tends to have much better migration statistics but worse key distrbution with the same shard counts
-- If we can provision the right number of shards, perhaps the key distribution for equidistant sharding could also get better
 - Considering that ultimately the shards that get the keys are the ones that will handle the write throughput, it makes sense to optimize key distribution
-
-## TODOs - OPTIMAL SHARD COUNTS
-
-- For 1M keys (which ought to be handled in 100ms), lets try to find the optimal equidistant-shardCounts and compare it to optimal murmurhash-shardCounts
-- For a range of 1000 to 5000, optimal shard count for equi-shard distribution = 
-- For a range of 1000 to 5000, optimal shard count for murmur-shard distribution = 
 
 -->
