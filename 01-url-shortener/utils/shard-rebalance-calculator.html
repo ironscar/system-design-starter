@@ -7,21 +7,33 @@
             var p = 0;
             var n1 = 0;
             var n2 = 0;
-            var v = 0;            
+            var v = 0;
+            var r1 = 0;
+            var r2 = 0;         
+            var keyPositions = [];   
 
-            function initialize() {
+            function initialize(initializeKeys = false) {
                 m = parseInt(document.getElementById('totalRecords').value);
                 p = parseInt(document.getElementById('precision').value);
                 n1 = parseInt(document.getElementById('oldShards').value);
                 n2 = parseInt(document.getElementById('newShards').value);
                 v = parseInt(document.getElementById('virtualShards').value);
+                r1 = parseInt(document.getElementById('rangeMin').value);
+                r2 = parseInt(document.getElementById('rangeMax').value);
+
+                if (initializeKeys) {
+                    keyPositions = [];
+                    for (let i = 0 ; i < m ; i++) {
+                        keyPositions.push(murmurHash(`https://${Math.random().toString(36).substring(2)}`, p));
+                    }
+                }
             }
 
             function rebalanceModShard() {
                 let migrationsReq = 0;
                 var oldShardsList = [];
                 var newShardsList = [];
-                initialize();
+                initialize(false);
                 
                 // initialize shard lists
                 for (var i = 0 ; i < n1 ; i++) {
@@ -114,10 +126,10 @@
              * Implement equidistant shards and see if shard utilization is better while keeping similar migration metrics
              * max virtual shards = 50K and max = 4.2B => distance between each shard is rougly 85K
              * we want virtual shards from different physical shards to be next to each other
-             * we also don't want to change the virtual shard positions from old state so we always use n1 instead of the current shardCount
+             * we also don't want to change the virtual shard positions from old state so we always use n1 as totalShards instead of the current shardCount
              */
-            function useEquiShardPositioner(physicalShardIndex, virtualShardIndex, precision) {
-                const positionIndex = ((virtualShardIndex * n1) + physicalShardIndex) * 85000;
+            function useEquiShardPositioner(totalShards, physicalShardIndex, virtualShardIndex, precision) {
+                const positionIndex = ((virtualShardIndex * totalShards) + physicalShardIndex) * 85000;
 
                 // calculate 5 digit position of the shards
                 return positionIndex/(Math.pow(10, precision));
@@ -129,20 +141,19 @@
                 let migrationsReq = 0;
                 let oldShardPositions = [];
                 let newShardPositions = [];
-                let keyPositions = [];
                 let oldShardHoldings = [];
                 let newShardHoldings = [];
                 let migrationsBySource = [];
-                let displayShardDistributions = true;
-                let useEquiShardPositioning = true;
+                const displayShardDistributions = true;
+                const useEquiShardPositioning = true;
                 
-                initialize();
+                initialize(true);
 
                 // init shard names, shard positions, shard holdings and key positions
                 for (let i = 0; i < n1 ; i++) {
                     let shardName = `shard-${i}`;
                     for (let j = 0 ; j < v ; j++) {
-                        oldShardPositions.push({ name: shardName + `-${j}`, position: useEquiShardPositioning ? useEquiShardPositioner(i,j,p) : murmurHash(shardName + `-${j}`, p)});
+                        oldShardPositions.push({ name: shardName + `-${j}`, position: useEquiShardPositioning ? useEquiShardPositioner(n1,i,j,p) : murmurHash(shardName + `-${j}`, p)});
                     }
                     oldShardHoldings.push([]);
                     migrationsBySource.push(0);
@@ -150,12 +161,9 @@
                 for (let i = 0; i < n2 ; i++) {
                     let shardName = `shard-${i}`;
                     for (let j = 0 ; j < v ; j++) {
-                        newShardPositions.push({ name: shardName + `-${j}`, position: useEquiShardPositioning ? useEquiShardPositioner(i,j,p) : murmurHash(shardName + `-${j}`, p)});
+                        newShardPositions.push({ name: shardName + `-${j}`, position: useEquiShardPositioning ? useEquiShardPositioner(n1,i,j,p) : murmurHash(shardName + `-${j}`, p)});
                     }
                     newShardHoldings.push([]);
-                }
-                for (let i = 0 ; i < m ; i++) {
-                    keyPositions.push(murmurHash(`https://${Math.random().toString(36).substring(2)}`, p));
                 }
 
                 // sort shard positions
@@ -238,6 +246,86 @@
                 console.log(`Empty new shards = ${emptyNewShards}`);
                 console.log('Rebalancing time = ' + (endTime - startTime) + ' ms');
             }
+        
+            function findOptimalShardCounts(useEquiShardPositioning) {
+                let startTime = new Date().getTime();
+                console.log(`start optimizing shard counts for ${useEquiShardPositioning ? 'equi-shard' : 'murmur-hash'}`);
+                initialize(true);
+
+                let minEmptyShards = r2;
+                let optimalK = 0;
+
+                for (let k = r2; k >= r1; k -= 100) {
+                    // init shards
+                    let shardPositions = [];
+                    let shardHoldings = [];
+
+                    // init shard positions
+                    for (let i = 0; i < k ; i++) {
+                        let shardName = `shard-${i}`;
+                        for (let j = 0 ; j < v ; j++) {
+                            shardPositions.push({ name: shardName + `-${j}`, position: useEquiShardPositioning ? useEquiShardPositioner(k,i,j,p) : murmurHash(shardName + `-${j}`, p)});
+                        }
+                        shardHoldings.push([]);
+                    }
+
+                    // sort shard positions and remove duplicate entries
+                    shardPositions.sort((a, b) => a.position - b.position);
+                    for (let i = 1; i < k; i++) {
+                        if (shardPositions[i].position === shardPositions[i - 1].position) {
+                            shardPositions[i-1] = null;
+                        }
+                    }
+                    shardPositions = shardPositions.filter((v => v !== null));
+                    const ovl = shardPositions.length;
+
+                    // implement hash ring and see rebalancing effort
+                    for (let i = 0; i < m; i++) {
+                        let shardIndex = 0;
+                        let selectedShard = null;
+                        while (shardIndex < ovl && keyPositions[i] > shardPositions[shardIndex].position) {
+                            shardIndex++;
+                        }
+                        shardIndex = shardIndex == ovl || shardIndex == 0 ? 0 : shardIndex - 1;
+                        selectedShard = shardPositions[shardIndex].name;
+                        let physicalShardIndex = selectedShard.substring(selectedShard.indexOf('-') + 1, selectedShard.lastIndexOf('-'));
+                        shardHoldings[physicalShardIndex].push(keyPositions[i]);
+                    }
+
+                    // count empty shards
+                    let emptyShards = 0;
+                    for (let i = 0; i < k; i++) {
+                        if (shardHoldings[i].length === 0) {
+                            emptyShards++;
+                        }
+                    }
+
+                    // check minimal empty shards and store shardCount
+                    if (emptyShards < minEmptyShards) {
+                        minEmptyShards = emptyShards;
+                        optimalK = k;
+                    }
+                    console.log(`Iteration ${k}: empty shards = ${emptyShards}`);
+
+                    // break if empty shards = 0
+                    if (emptyShards === 0) {
+                        break;
+                    }
+                }
+
+                let endTime = new Date().getTime();
+                console.log(`Optimal shard count = ${optimalK} with empty shards = ${minEmptyShards}`);
+                console.log(`Execution time = ${endTime - startTime} ms`);
+            }
+
+            function compareOptimalShardCounts() {
+                findOptimalShardCounts(true);
+
+                // add a  timeout so that we can get the logs once they end atleast
+                setTimeout(() => {
+                    findOptimalShardCounts(false);
+                }, 100);
+            }
         </script>
     </head>
     <body>
@@ -264,6 +352,16 @@
         </div>
         <button onclick="rebalanceModShard()">Rebalance Modulo Shard</button>
         <button onclick="rebalanceRingShard()">Rebalance Ring Shard</button>
+        <hr>
+        <div>
+            <label for="rangeMin">Range min:</label>
+            <input type="number" id="rangeMin" value="1000" />
+        </div>
+        <div>
+            <label for="rangeMax">Range max:</label>
+            <input type="number" id="rangeMax" value="4000" />
+        </div>
+        <button onclick="compareOptimalShardCounts()">Compare Optimal Shard Counts</button>
     </body>
 </html>
 
@@ -397,8 +495,10 @@
 - If we can provision the right number of shards, perhaps the key distribution for equidistant sharding could also get better
 - Considering that ultimately the shards that get the keys are the ones that will handle the write throughput, it makes sense to optimize key distribution
 
-## TODOs
+## TODOs - OPTIMAL SHARD COUNTS
 
-- For 1M keys (which ought to be handled in 100ms), lets try to find the optimal equidistant-shardCounts and compare it to murmurhash-shardCounts
+- For 1M keys (which ought to be handled in 100ms), lets try to find the optimal equidistant-shardCounts and compare it to optimal murmurhash-shardCounts
+- For a range of 1000 to 5000, optimal shard count for equi-shard distribution = 
+- For a range of 1000 to 5000, optimal shard count for murmur-shard distribution = 
 
 -->
