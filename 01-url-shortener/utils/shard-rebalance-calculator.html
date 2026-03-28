@@ -507,8 +507,30 @@
 ## OPTIMAL SHARD COUNTS
 
 - For 1M keys (which ought to be handled in 100ms), lets try to find the optimal equidistant-shardCounts and compare it to optimal murmurhash-shardCounts
-- For a range of 100 to 4000, optimal shard count based on minimal SD for equi-shard distribution = 
-- For a range of 100 to 4000, optimal shard count based on minimal SD for murmur-shard distribution = 
+
+### STANDARD DEVIATIONS
+
+- Standard deviations are low when shard counts are high and empty shards are low when shard counts are low
+- For a range of 1000 to 6000, optimal shard count for equi-shard distribution = 2500
+    - minimal empty shards to minimal max to minimal SD (sort of qualitatively)
+    - empty shards = 389
+    - standard deviation = 163.82
+    - mean = 385
+    - max = 534
+- For a range of 1000 to 6000, optimal shard count for murmur-shard distribution = 1800
+    - minmal max to minimal SD when empty shards = 0
+    - empty shards = 0
+    - standard deviation = 221.28
+    - mean = 555.56
+    - max = 1430
+
+### P95 DEVIATIONS [TODO]
+
+- consider finding the distance of 95% values that fall below mean and distance of 95% values that fall above mean (little more trusty than standard deviation)
+- (max(belowMeanDistance, aboveMeanDistance) - mean) specifies the deviation of 95% of values from the mean on either side is equal to the mean
+    - sort of implies that there are no empty shards
+- For a range of 1000 to 6000, optimal shard count for equi-shard distribution = 
+- For a range of 1000 to 6000, optimal shard count for murmur-shard distribution = 
 
 ----------------------------------------------------------------------------------------------------------------------------------
 
@@ -516,5 +538,7 @@
 
 - Equidistant sharding tends to have much better migration statistics but worse key distrbution with the same shard counts
 - Considering that ultimately the shards that get the keys are the ones that will handle the write throughput, it makes sense to optimize key distribution
+- Based on standard deviations, murmurhash-based sharding provides a more balanced key distribution with fewer empty shards for lower shard counts
+    - for 1M keys, 1800 shards is a good balance
 
 -->
