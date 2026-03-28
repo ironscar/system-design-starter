@@ -255,7 +255,7 @@
                 initialize(true);
 
                 let minEmptyShards = r2;
-                let minP95 = m;
+                let maxP95ShardPercent = 0;
                 let optimalK = 0;
                 let percentile = 95;
 
@@ -308,6 +308,7 @@
                     let meanIndex = -1;
                     let leftTotal = 0;
                     let rightTotal = 0;
+                    let totalp95Shards = 0;
 
                     for (let i = 0; i < k; i++) {
                         if (shardHoldings[i].length === 0) {
@@ -328,6 +329,7 @@
                     let p95LeftDeviation = 0;
                     for (let i = meanIndex - 1; i >= 0 ; i--) {
                         temmpSum += shardHoldings[i].length;
+                        totalp95Shards++;
                         if (temmpSum >= p95Left) {
                             p95LeftDeviation = mean - shardHoldings[i].length;
                             break;
@@ -338,24 +340,25 @@
                     let p95RightDeviation = 0;
                     for (let i = meanIndex; i < k; i++) {
                         temmpSum += shardHoldings[i].length;
+                        totalp95Shards++;
                         if (temmpSum >= p95Right) {
                             p95RightDeviation = shardHoldings[i].length - mean;
                             break;
                         }
                     }
 
-                    // defines the deviation on either side of mean for 95% of values and check for minimum
-                    let p95 = p95LeftDeviation + p95RightDeviation;
-                    console.log(`Iteration ${k}: empty shards = ${emptyShards}, min = ${min}, mean = ${mean.toFixed(2)}, max = ${max}, p95Left = ${p95LeftDeviation.toFixed(2)}, p95Right = ${p95RightDeviation.toFixed(2)}`);
-                    if (p95 < minP95) {
+                    // log and minimize metric
+                    let p95ShardPercent = (totalp95Shards * 100) / k;
+                    console.log(`Iteration ${k}: empty shards = ${emptyShards}, p95 shard % = ${p95ShardPercent}, min = ${min}, mean = ${mean.toFixed(2)}, max = ${max}, p95Left = ${p95LeftDeviation.toFixed(2)}, p95Right = ${p95RightDeviation.toFixed(2)}`);
+                    if (p95ShardPercent > maxP95ShardPercent) {
                         minEmptyShards = emptyShards;
-                        minP95 = p95;
+                        maxP95ShardPercent = p95ShardPercent;
                         optimalK = k;
                     }
                 }
 
                 let endTime = new Date().getTime();
-                console.log(`Optimal shard count = ${optimalK} with empty shards = ${minEmptyShards} and p95 = ${minP95.toFixed(2)}`);
+                console.log(`Optimal shard count = ${optimalK} with empty shards = ${minEmptyShards} and max P95 shard % = ${maxP95ShardPercent}`);
                 console.log(`Execution time = ${endTime - startTime} ms`);
             }
 
@@ -571,7 +574,10 @@
 - Considering that ultimately the shards that get the keys are the ones that will handle the write throughput, it makes sense to optimize key distribution
 - P95 value is much lesser for Murmur-shard configuration signifying that distribution is more equal across shards than the Equi-shard configuration
     - this was true when the raio of number of keys (5M) to the number of shards (50) were closer to the actual scale (50B keys, 5K shards)
-- Murmur-shard configuration also had consistently fewer empty shards than the equi-shard configuration
+- Murmur-shard configuration also had consistently fewer empty shards than the equi-shard configuration for the same shard counts
 - Thus the murmur-shard configuration is better at consistent scale
+- In general though, it also looks like p95 is lower for higher shard counts, so how do we find the optimal shard count above which it doesnt make sense
+    - look at what is the improvement in p95 on adding new shards, and this improvement tends to decrease for murmurHash as shard count increases
+    - perhaps we can look at % of shards that cover P95 range
 
 -->
