@@ -177,8 +177,9 @@
     - therefore, the comparison will be offset if the equi-shard config needs just as many shards as read replicas to support the required read throughput
     - assuming 20 threads per replica, 2 replicas per shard and each read is 2ms (50 in 1000ms)
       - equi-shard config read throughput = 2530 * 3 * 20 * 50 = 7.59M reads in 100ms (without taking into account the 20% degradation on hottest shard)
-          - adding the 20% penalty as 7.59 * 1.2 = 9.1M reads in 100ms
+          - adding the 20% penalty as 7.59 * 0.8 = 6.1M reads in 100ms
       - murmur-shard config read throughput = 2620 * 3 * 20 * 50 = 7.86M reads in 100ms
-      - the difference = 9.1M - 77.86M = 1.25M
-      - number of additional read replicas required for equi-shard config to offset this = 1.25M / (3 * 20 * 50) = 416
-- Overall, use murmur-shard config with 2620 writer shards overall
+      - the difference = 7.86M - 6.07M = 1.79M
+      - number of additional read replicas required for equi-shard config to offset this = 1.79M / (3 * 20 * 50) = 596
+      - 110 replicas will help with 0.3M reads per 100ms more => 6.4M reads in 100ms (adding it to base equi-shard config so that shard count for both configs is now equal)
+- Overall, if we are good with 64M reads/sec (6.4M reads in 100ms), then we go ahead with equi-shard config, but for higher read throughput, we need to use murmur-shard config
