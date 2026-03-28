@@ -297,11 +297,16 @@
                     let emptyShards = 0;
                     let mean = 0;
                     let sd = 0;
+                    let min = r2;
+                    let max = 0;
+                    let idealMean = m/k;
                     for (let i = 0; i < k; i++) {
                         if (shardHoldings[i].length === 0) {
                             emptyShards++;
                         }
                         mean += shardHoldings[i].length;
+                        min = Math.min(min, shardHoldings[i].length);
+                        max = Math.max(max, shardHoldings[i].length);
                     }
                     mean /= k;
                     for (let i = 0; i < k; i++) {
@@ -315,7 +320,12 @@
                         minSD = sd;
                         optimalK = k;
                     }
-                    console.log(`Iteration ${k}: empty shards = ${emptyShards}, mean = ${mean.toFixed(2)}, sd = ${sd.toFixed(2)}`);
+                    console.log(`Iteration ${k}: empty shards = ${emptyShards}, ideal mean = ${idealMean.toFixed(2)}, actual mean = ${mean.toFixed(2)}, min = ${min}, max = ${max}, sd = ${sd.toFixed(2)}`);
+
+                    // break if data is so spread out that distribution is no longer normal (as sd >= mean implies negative values exist for it to be normal which may imply empty shards too)
+                    if (sd >= Math.min(mean, idealMean)) {
+                        break;
+                    }
                 }
 
                 let endTime = new Date().getTime();
@@ -361,11 +371,11 @@
         <h2>Optimal Shard Count Comparison</h2>
         <div>
             <label for="rangeMin">Range min:</label>
-            <input type="number" id="rangeMin" value="100" />
+            <input type="number" id="rangeMin" value="1000" />
         </div>
         <div>
             <label for="rangeMax">Range max:</label>
-            <input type="number" id="rangeMax" value="4000" />
+            <input type="number" id="rangeMax" value="6000" />
         </div>
         <button onclick="compareOptimalShardCounts()">Compare Optimal Shard Counts</button>
     </body>
