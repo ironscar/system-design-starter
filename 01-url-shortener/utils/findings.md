@@ -150,13 +150,6 @@
     - mean = 2,631,578.95
     - p95 range = 2,005,109
     - p95 shard coverage = 100%
-- For murmur-shard config, optimal shard count ended up being 19 => 19000 for actual scale
-  - we would need to also check if given that distribution, the write throughput of 10M req/s is achievable as read throughput can always be achieved by adding more read replicas
-  - assign some general milliseconds per write request and check if shard with most keys is able to handle all its keys within time scalably
-    - 50M keys => 5 seconds resolution overall where all shards working in parallel
-    - assuming 1000 key batch insert and time per insert = 100ms
-    - max for 19K shards = 3,546,975 keys => 3547 inserts => 1418.8 seconds (not scalable)
-  - we can also refer to the results.log file to see the lowest shard count where that throughput is achievable
 
 ----------------------------------------------------------------------------------------------------------------------------------
 
@@ -169,6 +162,14 @@
 - Murmur-shard configuration also had consistently fewer empty shards than the equi-shard configuration for the same shard counts
 - Thus the murmur-shard configuration is better at consistent scale
 - In general though, it also looks like p95 is lower for higher shard counts, so how do we find the optimal shard count above which it doesnt make sense
-    - look at % of shards that cover P95 range, more the percentage => P95 keys are distributed among more shards thus reducing request load per shard
-    - so we maximize the % of shards that cover P95 range and minimize the P95 distribution of keys
-    - out of the ones that get 100% coverage, we select the one with the lowest P95 sum value (usually the one with highest shard count but sometimes not)
+  - look at % of shards that cover P95 range, more the percentage => P95 keys are distributed among more shards thus reducing request load per shard
+  - so we maximize the % of shards that cover P95 range and minimize the P95 distribution of keys
+  - out of the ones that get 100% coverage, we select the one with the lowest P95 sum value (usually the one with highest shard count but sometimes not)
+- We would need to also check if given that distribution, the write throughput of 10M req/s is achievable as read throughput can always be achieved by adding more read replicas
+  - 1M keys => 100ms resolution overall where all shards working in parallel
+  - assuming 1000 key batch insert and time per insert = 100ms => each shard can do exactly one insert at max efficacy
+  - refer to results.log
+    - for equi-shards: sweet spot is at 2530 with max = 555 (chosen due to better P95 shard coverage % (95%) and 0 empty shards)
+    - for murmur-shards: sweet spot is at 2620 with max = 993 (P95 shard coverage % (90%) and 13 empty shards)
+- To support the extreme write throughput, we have to use a very high shard count where equi-shard config has better distribution then murmur-shard config
+  - we use 2530 shards overall in equi-shard config
