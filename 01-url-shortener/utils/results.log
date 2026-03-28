@@ -1,0 +1,47 @@
+start optimizing shard counts for equi-shard
+Iteration 30: empty shards = 0, p95 shard % = 93.33%, min = 11503, mean = 1666666.67, max = 49421259, p95Sum = 49409724.00
+Iteration 29: empty shards = 0, p95 shard % = 96.55%, min = 14005, mean = 1724137.93, max = 49451600, p95Sum = 49435532.00
+Iteration 28: empty shards = 0, p95 shard % = 96.43%, min = 18402, mean = 1785714.29, max = 49467802, p95Sum = 49449377.00
+Iteration 27: empty shards = 0, p95 shard % = 96.30%, min = 13975, mean = 1851851.85, max = 49490508, p95Sum = 49474339.00
+Iteration 26: empty shards = 0, p95 shard % = 96.15%, min = 18444, mean = 1923076.92, max = 49506680, p95Sum = 49488217.00
+Iteration 25: empty shards = 0, p95 shard % = 96.00%, min = 16140, mean = 2000000.00, max = 49525369, p95Sum = 49509191.00
+Iteration 24: empty shards = 0, p95 shard % = 95.83%, min = 18337, mean = 2083333.33, max = 49546181, p95Sum = 49527738.00
+Iteration 23: empty shards = 0, p95 shard % = 95.65%, min = 16189, mean = 2173913.04, max = 49567075, p95Sum = 49548600.00
+Iteration 22: empty shards = 0, p95 shard % = 95.45%, min = 18404, mean = 2272727.27, max = 49586092, p95Sum = 49567648.00
+Iteration 21: empty shards = 0, p95 shard % = 95.24%, min = 16233, mean = 2380952.38, max = 49606970, p95Sum = 49588636.00
+Iteration 20: empty shards = 2, p95 shard % = 90.00%, min = 0, mean = 2500000.00, max = 49606752, p95Sum = 49585724.00
+Iteration 19: empty shards = 0, p95 shard % = 100.00%, min = 18436, mean = 2631578.95, max = 49646294, p95Sum = 49627858.00
+Iteration 18: empty shards = 0, p95 shard % = 100.00%, min = 18349, mean = 2777777.78, max = 49664959, p95Sum = 49646610.00
+Iteration 17: empty shards = 0, p95 shard % = 100.00%, min = 18466, mean = 2941176.47, max = 49685552, p95Sum = 49667086.00
+Iteration 16: empty shards = 0, p95 shard % = 100.00%, min = 18437, mean = 3125000.00, max = 49704130, p95Sum = 49685693.00
+Iteration 15: empty shards = 0, p95 shard % = 100.00%, min = 16165, mean = 3333333.33, max = 49722792, p95Sum = 49706627.00
+Iteration 14: empty shards = 0, p95 shard % = 100.00%, min = 18479, mean = 3571428.57, max = 49743663, p95Sum = 49725184.00
+Iteration 13: empty shards = 0, p95 shard % = 100.00%, min = 16214, mean = 3846153.85, max = 49762086, p95Sum = 49745872.00
+Iteration 12: empty shards = 0, p95 shard % = 100.00%, min = 18526, mean = 4166666.67, max = 49783163, p95Sum = 49764637.00
+Iteration 11: empty shards = 0, p95 shard % = 100.00%, min = 16119, mean = 4545454.55, max = 49801526, p95Sum = 49785407.00
+Iteration 10: empty shards = 0, p95 shard % = 100.00%, min = 11650, mean = 5000000.00, max = 49815538, p95Sum = 49803888.00
+Optimal shard count = 19 with empty shards = 0, max P95 shard % = 100.00%, min P95 = 49627858.00
+
+start optimizing shard counts for murmur-hash
+Iteration 30: empty shards = 0, p95 shard % = 96.67%, min = 795759, mean = 1666666.67, max = 2751325, p95Sum = 1895467.00
+Iteration 29: empty shards = 0, p95 shard % = 96.55%, min = 795759, mean = 1724137.93, max = 2751325, p95Sum = 1853365.00
+Iteration 28: empty shards = 0, p95 shard % = 96.43%, min = 795759, mean = 1785714.29, max = 3189398, p95Sum = 2291438.00
+Iteration 27: empty shards = 0, p95 shard % = 96.30%, min = 795759, mean = 1851851.85, max = 3032080, p95Sum = 2134120.00
+Iteration 26: empty shards = 0, p95 shard % = 100.00%, min = 908040, mean = 1923076.92, max = 3032080, p95Sum = 2124040.00
+Iteration 25: empty shards = 0, p95 shard % = 100.00%, min = 908040, mean = 2000000.00, max = 3108816, p95Sum = 2200776.00
+Iteration 24: empty shards = 0, p95 shard % = 100.00%, min = 908040, mean = 2083333.33, max = 3235031, p95Sum = 2326991.00
+Iteration 23: empty shards = 0, p95 shard % = 100.00%, min = 1059707, mean = 2173913.04, max = 3357651, p95Sum = 2297944.00
+Iteration 22: empty shards = 0, p95 shard % = 100.00%, min = 1111098, mean = 2272727.27, max = 3357651, p95Sum = 2246553.00
+Iteration 21: empty shards = 0, p95 shard % = 100.00%, min = 1111098, mean = 2380952.38, max = 3357651, p95Sum = 2246553.00
+Iteration 20: empty shards = 0, p95 shard % = 100.00%, min = 1292517, mean = 2500000.00, max = 3546975, p95Sum = 2254458.00
+Iteration 19: empty shards = 0, p95 shard % = 100.00%, min = 1541866, mean = 2631578.95, max = 3546975, p95Sum = 2005109.00
+Iteration 18: empty shards = 0, p95 shard % = 100.00%, min = 1588248, mean = 2777777.78, max = 4044876, p95Sum = 2456628.00
+Iteration 17: empty shards = 0, p95 shard % = 100.00%, min = 1588248, mean = 2941176.47, max = 4246518, p95Sum = 2658270.00
+Iteration 16: empty shards = 0, p95 shard % = 100.00%, min = 1588248, mean = 3125000.00, max = 4448820, p95Sum = 2860572.00
+Iteration 15: empty shards = 0, p95 shard % = 100.00%, min = 1588248, mean = 3333333.33, max = 4491519, p95Sum = 2903271.00
+Iteration 14: empty shards = 0, p95 shard % = 100.00%, min = 1648748, mean = 3571428.57, max = 4762588, p95Sum = 3113840.00
+Iteration 13: empty shards = 0, p95 shard % = 100.00%, min = 1648748, mean = 3846153.85, max = 5167264, p95Sum = 3518516.00
+Iteration 12: empty shards = 0, p95 shard % = 100.00%, min = 1648748, mean = 4166666.67, max = 5998433, p95Sum = 4349685.00
+Iteration 11: empty shards = 0, p95 shard % = 100.00%, min = 2618624, mean = 4545454.55, max = 6893845, p95Sum = 4275221.00
+Iteration 10: empty shards = 0, p95 shard % = 100.00%, min = 2912999, mean = 5000000.00, max = 7112824, p95Sum = 4199825.00
+Optimal shard count = 19 with empty shards = 0, max P95 shard % = 100.00%, min P95 = 2005109.00
