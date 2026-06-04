@@ -158,7 +158,7 @@
 - Equidistant sharding tends to have much better migration statistics but worse key distrbution with the same shard counts
 - Considering that ultimately the shards that get the keys are the ones that will handle the write throughput, it makes sense to optimize key distribution
 - P95 value is much lesser for Murmur-shard configuration signifying that distribution is more equal across shards than the Equi-shard configuration
-    - this was true when the raio of number of keys (5M) to the number of shards (50) were closer to the actual scale (50B keys, 5K shards)
+    - this was true when the ratio of number of keys (5M) to the number of shards (50) were closer to the actual scale (50B keys, 5K shards)
 - Murmur-shard configuration also had consistently fewer empty shards than the equi-shard configuration for the same shard counts
 - Thus the murmur-shard configuration is better at consistent scale
 - In general though, it also looks like p95 is lower for higher shard counts, so how do we find the optimal shard count above which it doesnt make sense
