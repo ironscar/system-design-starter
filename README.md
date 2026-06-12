@@ -10,7 +10,5 @@
 - Currently, configured claude to work with the free Miro MCP with `claude mcp add --transport http miro https://mcp.miro.com`
 
 1. URL Shortener: `./01-url-shortener`
-  - create new diagrams for attempt 2
-  - we can try to document the entire miro board as `.md` files so as to be exportable [TRY]
 
 ---
