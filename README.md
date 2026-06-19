@@ -7,7 +7,6 @@
   - `2-peer-review-analysis`: the analysis of designs presented and reviewed among peers
   - `3-post-peer-review-design`: the design after taking feedback from peer reviews
   - `4-final-solution-analysis`: the analysis of actual industry solution compared to your latest design
-- Currently, configured claude to work with the free Miro MCP with `claude mcp add --transport http miro https://mcp.miro.com`
 
 1. URL Shortener: `./01-url-shortener`
 
