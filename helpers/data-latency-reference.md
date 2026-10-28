@@ -56,3 +56,14 @@
 - Latencies also tend to change based on current throughput
 
 ## Estimated Read Latency [TODO]
+
+|  Operation             |    Single Read Latency     |    Network RTT      |
+|------------------------|----------------------------|---------------------|
+|  In-memory             |                            |      x0             |
+|  Disk HDD              |                            |      x0             |   
+|  Disk NVMe SSD         |                            |      x0             |
+|  Disk SATA SSD         |                            |      x0             |
+|  Redis                 |                            |      x1             |
+|  Postgres              |                            |      x1             |
+|  ScyllaDB              |                            |      x1             |
+|  Kafka                 |                            |      x1             |
