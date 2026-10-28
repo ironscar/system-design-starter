@@ -10,24 +10,24 @@
 | Same AZ       |  0.25              | 
 | Cross AZ      |  2                 |
 | Cross Region  |  200               |
-|
 
 ## Estimated Write Latency
 
-|  Operation             |  Single Write ACK Latency  |       Fsync ACK Time        |    Network RTT       |
-|------------------------|----------------------------|-----------------------------|----------------------|
-|  In-memory             |   100ns                    |            N/A              |      No              |
-|  Disk HDD              |   2ms                      |     (ACK before fsync)      |      No              |   
-|  Disk NVMe SSD         |   20us                     |     (ACK before fsync)      |      No              |
-|  Disk SATA SSD         |   20us                     |     (ACK before fsync)      |      No              |
-|  Redis default         |   100ns                    |     (ACK before fsync)      |      Yes             |
-|  Redis AOF always      |   300us                    |     (ACK after fsync)       |      Yes             |
-|  Redis RDB             |   100ns                    |     (ACK before fsync)      |      Yes             |
-|  Postgres default      |   2ms                      |     (ACK after fsync)       |      Yes             |
-|  Postgres sync = off   |   30us                     |     (ACK before fsync)      |      Yes             |
-|  ScyllaDB default      |   150us                    |     (ACK before fsync)      |      Yes             |
-|  ScyllaDB batch        |   4ms                      |     (ACK after fsync)       |      Yes             |
-|
+|  Operation             |  Single Write ACK Latency  |       Fsync ACK Time        |    Network RTT      |
+|------------------------|----------------------------|-----------------------------|---------------------|
+|  In-memory             |   100ns                    |            N/A              |      x0             |
+|  Disk HDD              |   2ms                      |     (ACK before fsync)      |      x0             |   
+|  Disk NVMe SSD         |   20us                     |     (ACK before fsync)      |      x0             |
+|  Disk SATA SSD         |   20us                     |     (ACK before fsync)      |      x0             |
+|  Redis default         |   100ns                    |     (ACK before fsync)      |      x1             |
+|  Redis AOF always      |   300us                    |     (ACK after fsync)       |      x1             |
+|  Redis RDB             |   100ns                    |     (ACK before fsync)      |      x1             |
+|  Postgres default      |   2ms                      |     (ACK after fsync)       |      x1             |
+|  Postgres sync = off   |   30us                     |     (ACK before fsync)      |      x1             |
+|  ScyllaDB default      |   150us                    |     (ACK before fsync)      |      x1             |
+|  ScyllaDB batch        |   4ms                      |     (ACK after fsync)       |      x1             |
+|  Kafka acks = 1        |   400us                    |     (ACK before fsync)      |      x1             |
+|  Kafka acks = all      |   400us                    |     (ACK before fsync)      |      x2             |
 
 ### Interesting Caveats
 
@@ -47,10 +47,12 @@
   - this results in higher latency but offers guaranteed durability
   - its also faster than ScyllaDB when compared with the same ACK setup
   - ScyllaDB default however ACKs before fsync unlike Postgres
+- Kafka really depends on replication for durability as its fsync is done by OS flush which is unpredictable
 - Latency relationship with data size is as follows
   - small writes upto 4kb have negligible effect on latency
   - SSDs start handling multi-page writes for data greater than 4kb
-  - Redis/Postgres/Scylla start having an effect at 1MB or greater due to serialization and WAL overhead (where applicable)
+  - Redis/Postgres/Scylla/Kafka start having an effect at 1MB or greater due to serialization and WAL overhead (where applicable)
   - these latencies also don't take into account index updates that happen for databases like Postgres
+- Latencies also tend to change based on current throughput
 
 ## Estimated Read Latency [TODO]
